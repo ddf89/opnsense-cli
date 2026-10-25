@@ -30,6 +30,7 @@ func init() {
 	}
 	menu.Add(
 		&Command{Name: "print", Help: "list the templates and the zones using them", Args: []Arg{
+			{Name: "detail", Type: Bool, Help: "show all fields of every template"},
 			{Name: "json", Type: Bool, Help: "one JSON object per line, as the API returns them (with the base64 zip)"},
 			{Name: "search", Help: "only templates where any field contains this text"},
 		}, Run: captivePortalTemplatePrint},
@@ -174,14 +175,31 @@ func captivePortalTemplatePrint(c *Context, args *Args) error {
 		return err
 	}
 	var rows = make([][]string, len(templates))
+	var details = make([][][2]string, len(templates))
 	var uuids = make([]string, len(templates))
 	for i, template := range templates {
 		uuids[i] = template.Uuid
 		rows[i] = []string{template.Name, template.FileId, captivePortalTemplateSize(template),
 			strings.Join(captivePortalTemplateUsers(zones, template.Uuid), ",")}
+		details[i] = captivePortalTemplateDetail(template, zones)
+	}
+	if args.Bool("detail") {
+		c.Details(details, uuids)
+		return nil
 	}
 	c.Items([]string{"NAME", "FILE-ID", "SIZE", "USED-BY"}, rows, uuids)
 	return nil
+}
+
+// captivePortalTemplateDetail are the fields of show and print detail
+func captivePortalTemplateDetail(template captiveportal.Template, zones []captiveportal.Zone) [][2]string {
+	return [][2]string{
+		{"uuid", template.Uuid},
+		{"name", template.Name},
+		{"file-id", template.FileId},
+		{"size", captivePortalTemplateSize(template)},
+		{"used-by", strings.Join(captivePortalTemplateUsers(zones, template.Uuid), ",")},
+	}
 }
 
 func captivePortalTemplateShow(c *Context, args *Args) error {
@@ -197,13 +215,7 @@ func captivePortalTemplateShow(c *Context, args *Args) error {
 	if err != nil {
 		return err
 	}
-	c.Fields([][2]string{
-		{"uuid", template.Uuid},
-		{"name", template.Name},
-		{"file-id", template.FileId},
-		{"size", captivePortalTemplateSize(template)},
-		{"used-by", strings.Join(captivePortalTemplateUsers(zones, template.Uuid), ",")},
-	})
+	c.Fields(captivePortalTemplateDetail(template, zones))
 	return nil
 }
 

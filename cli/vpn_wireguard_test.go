@@ -188,7 +188,7 @@ func TestWireguardPeerGenerate(t *testing.T) {
 	f.on("POST", "/api/wireguard/client/add_client", 200, answerAdded("p-new"))
 	f.on("POST", "/api/wireguard/server/set_server/i-1", 200, answerSaved)
 	var dir = t.TempDir()
-	var r = runOpnIn(t, dir, f.env(), "/vpn/wireguard/peer", "generate", "name=tablet", "instance=wg-office", "keepalive=25", "psk",
+	var r = runOpnIn(t, dir, f.env(), "/vpn/wireguard/peer", "generate", "name=tablet", "instance=wg-office", "keepalive=25", "generate-psk",
 		"endpoint=vpn2.example.com:51820")
 	wantExit(t, r, 0)
 	if r.stdout != "p-new\n" {
