@@ -2,9 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
 	"log"
 	"opnsense-cli/opnsense/api/unbound"
+
+	"github.com/spf13/cobra"
 )
 
 var unboundHostOverrideRmCmd = &cobra.Command{
@@ -14,32 +15,33 @@ var unboundHostOverrideRmCmd = &cobra.Command{
 }
 
 func init() {
-	unboundHostOverrideRmCmd.Flags().StringVarP(&HOSTOVERRIDEhost, "host", "", "", "lookup entry by the host / domain the host part")
-	unboundHostOverrideRmCmd.Flags().StringVarP(&HOSTOVERRIDEdomain, "domain", "", "", "lookup entry by the host / domainthe domain part")
+	unboundHostOverrideRmCmd.Flags().StringVarP(&HOSTOVERRIDEhost, "host", "", "", "lookup entry by host / domain: the host part")
+	unboundHostOverrideRmCmd.Flags().StringVarP(&HOSTOVERRIDEdomain, "domain", "", "", "lookup entry by host / domain: the domain part")
+	unboundHostOverrideRmCmd.Flags().StringVarP(&HOSTOVERRIDEfilterRr, "rr", "", "", "lookup entry by host / domain: only entries of this record type, needed if the FQDN has several records")
 	unboundHostOverrideRmCmd.Flags().StringVarP(&HOSTOVERRIDEuuid, "uuid", "", "", "delete by uuid explicitly")
 
 	unboundHostOverrideCmd.AddCommand(unboundHostOverrideRmCmd)
 }
 
 func hostEntryRmRun(_ *cobra.Command, _ []string) {
-	var openvpnApi = unbound.UnboundApi{OPNsense: GetOPNsenseApi()}
+	var unboundApi = unbound.UnboundApi{OPNsense: GetOPNsenseApi()}
 
-	if HOSTOVERRIDEhost == "" || HOSTOVERRIDEdomain == "" && HOSTOVERRIDEuuid == "" {
+	if HOSTOVERRIDEuuid == "" && (HOSTOVERRIDEhost == "" || HOSTOVERRIDEdomain == "") {
 		log.Fatal("Please either set host and domain or set uuid")
 	}
 
-	if HOSTOVERRIDEhost != "" && HOSTOVERRIDEdomain != "" {
-		var entry, err = openvpnApi.HostEntryGetByFQDN(HOSTOVERRIDEhost, HOSTOVERRIDEdomain)
+	if HOSTOVERRIDEuuid == "" {
+		var entry, err = unboundApi.HostOverrideGetByFQDNAndRr(HOSTOVERRIDEhost, HOSTOVERRIDEdomain, HOSTOVERRIDEfilterRr)
 		if err != nil {
-			log.Fatal(err.Error())
+			log.Fatal(hostOverrideLookupError(err))
 		}
 		HOSTOVERRIDEuuid = entry.Uuid
-		log.Printf("Found Uuid %s for FQDM %s.%s", HOSTOVERRIDEuuid, HOSTOVERRIDEhost, HOSTOVERRIDEdomain)
+		log.Printf("Found Uuid %s for FQDN %s.%s", HOSTOVERRIDEuuid, HOSTOVERRIDEhost, HOSTOVERRIDEdomain)
 	}
 
-	var err = openvpnApi.HostEntryRemove(HOSTOVERRIDEuuid)
+	var err = unboundApi.HostEntryRemove(HOSTOVERRIDEuuid)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("deleted successfully")
+	fmt.Printf("deleted successfully, uuid: %s\n", HOSTOVERRIDEuuid)
 }

@@ -1,107 +1,49 @@
 package unbound
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
+	"strings"
 )
 
+func (opn *UnboundApi) serviceEndpoint(method string) string {
+	return opn.EndpointForPluginControllerMethod("unbound", "service", method)
+}
+
+// ServiceRestart restarts Unbound, OPNsense answers {"response":"OK"} on success
 func (opn *UnboundApi) ServiceRestart() error {
-	// endpoint
-	var endpoint = opn.EndpointForPluginControllerMethod("unbound", "service", "restart")
-
-	// create our Request
-	request, reqCreationErr := http.NewRequest("POST", endpoint, nil)
-	if reqCreationErr != nil {
-		return reqCreationErr
+	var container struct {
+		Response string `json:"response"`
 	}
-
-	var response, reqErr = opn.Send(request)
-	if reqErr != nil {
-		return reqErr
+	if err := opn.DoJSON("POST", opn.serviceEndpoint("restart"), nil, &container); err != nil {
+		return err
 	}
-
-	if response.StatusCode == 200 {
-		// else
-		return nil
-	} else {
-		var container struct {
-			Status  string `json:"status"`
-			Message string `json:"message"`
-		}
-
-		if err := json.NewDecoder(response.Body).Decode(&container); err != nil {
-			return err
-		}
-		return errors.New(fmt.Sprintf("%s:%s", container.Message, reqErr))
+	if strings.TrimSpace(container.Response) != "OK" {
+		return fmt.Errorf("restarting unbound failed: %q", container.Response)
 	}
+	return nil
 }
 
+// ServiceReconfigure applies the configuration (e.g. host overrides), OPNsense answers {"status":"ok"} on success
 func (opn *UnboundApi) ServiceReconfigure() error {
-	// endpoint
-	var endpoint = opn.EndpointForPluginControllerMethod("unbound", "service", "reconfigure")
-
-	// create our Request
-	request, reqCreationErr := http.NewRequest("POST", endpoint, nil)
-	if reqCreationErr != nil {
-		return reqCreationErr
+	var container struct {
+		Status string `json:"status"`
 	}
-
-	var response, reqErr = opn.Send(request)
-	if reqErr != nil {
-		return reqErr
+	if err := opn.DoJSON("POST", opn.serviceEndpoint("reconfigure"), nil, &container); err != nil {
+		return err
 	}
-
-	if response.StatusCode == 200 {
-		// else
-		return nil
-	} else {
-		var container struct {
-			Status  string `json:"status"`
-			Message string `json:"message"`
-		}
-
-		if err := json.NewDecoder(response.Body).Decode(&container); err != nil {
-			return err
-		}
-		return errors.New(fmt.Sprintf("%s:%s", container.Message, reqErr))
+	if !strings.EqualFold(strings.TrimSpace(container.Status), "ok") {
+		return fmt.Errorf("reconfiguring unbound failed: %q", container.Status)
 	}
+	return nil
 }
 
+// ServiceStatus returns the service status like running, stopped or disabled
 func (opn *UnboundApi) ServiceStatus() (string, error) {
-	// endpoint
-	var endpoint = opn.EndpointForPluginControllerMethod("unbound", "service", "status")
-
-	// create our Request
-	request, reqCreationErr := http.NewRequest("GET", endpoint, nil)
-	if reqCreationErr != nil {
-		return "", reqCreationErr
+	var container struct {
+		Status string `json:"status"`
 	}
-
-	var response, reqErr = opn.Send(request)
-	if reqErr != nil {
-		return "", reqErr
+	if err := opn.DoJSON("GET", opn.serviceEndpoint("status"), nil, &container); err != nil {
+		return "", err
 	}
-
-	if response.StatusCode == 200 {
-		var container struct {
-			Status string `json:"status"`
-		}
-		if err := json.NewDecoder(response.Body).Decode(&container); err != nil {
-			return "", err
-		}
-		// else
-		return container.Status, nil
-	} else {
-		var container struct {
-			Status  string `json:"status"`
-			Message string `json:"message"`
-		}
-
-		if err := json.NewDecoder(response.Body).Decode(&container); err != nil {
-			return "", err
-		}
-		return "", errors.New(fmt.Sprintf("%s:%s", container.Message, reqErr))
-	}
+	return container.Status, nil
 }

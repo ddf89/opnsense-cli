@@ -1,9 +1,10 @@
 package cmd
 
 import (
-	"github.com/spf13/cobra"
 	"log"
 	"opnsense-cli/opnsense/api/unbound"
+
+	"github.com/spf13/cobra"
 )
 
 var unboundRestartCmd = &cobra.Command{

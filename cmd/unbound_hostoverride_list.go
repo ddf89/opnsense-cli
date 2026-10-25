@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	"fmt"
-	"github.com/spf13/cobra"
 	"log"
 	"opnsense-cli/opnsense/api/unbound"
+
+	"github.com/spf13/cobra"
 )
 
 var unboundHostOverrideListCmd = &cobra.Command{
@@ -14,17 +14,32 @@ var unboundHostOverrideListCmd = &cobra.Command{
 }
 
 func init() {
+	unboundHostOverrideListCmd.Flags().StringVarP(&HOSTOVERRIDEsearch, "search", "", "", "only list entries where any field contains this text")
+
 	unboundHostOverrideCmd.AddCommand(unboundHostOverrideListCmd)
 }
 
 func hostEntryListRun(_ *cobra.Command, _ []string) {
 	var unboundApi = unbound.UnboundApi{OPNsense: GetOPNsenseApi()}
 
-	var hostOverrideEntries, err = unboundApi.HostOverrideList()
+	var hostOverrideEntries, err = unboundApi.HostOverrideSearch(HOSTOVERRIDEsearch)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	var rows = make([][]string, 0, len(hostOverrideEntries))
 	for _, hostEntry := range hostOverrideEntries {
-		fmt.Println(hostEntry)
+		rows = append(rows, []string{
+			hostEntry.Uuid,
+			hostEntry.Enabled,
+			hostEntry.Host,
+			hostEntry.Domain,
+			hostEntry.Rr,
+			hostOverrideValue(hostEntry),
+			hostEntry.Ttl,
+			hostEntry.Addptr,
+			hostEntry.Description,
+		})
 	}
+	printTable([]string{"UUID", "ENABLED", "HOST", "DOMAIN", "RR", "VALUE", "TTL", "PTR", "DESCRIPTION"}, rows)
 }
