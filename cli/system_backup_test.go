@@ -283,7 +283,7 @@ func TestSystemBackupDownload(t *testing.T) {
 		}
 		wantNoFiles(t, dir)
 	})
-	t.Run("existing file is not overwritten without force", func(t *testing.T) {
+	t.Run("existing file is not overwritten without overwrite", func(t *testing.T) {
 		t.Parallel()
 		var f, dir = setup(t)
 		var path = filepath.Join(dir, "out.xml")
@@ -291,15 +291,15 @@ func TestSystemBackupDownload(t *testing.T) {
 			t.Fatal(err)
 		}
 		var r = runOpnIn(t, dir, f.env(), "/system/backup", "download", "file=out.xml")
-		wantFailure(t, r, "out.xml", "force")
+		wantFailure(t, r, "out.xml", "overwrite")
 		if data, _ := os.ReadFile(path); string(data) != "keep me" {
 			t.Errorf("file was overwritten: %q", data)
 		}
 
-		r = runOpnIn(t, dir, f.env(), "/system/backup", "download", "file=out.xml", "force")
+		r = runOpnIn(t, dir, f.env(), "/system/backup", "download", "file=out.xml", "overwrite")
 		wantExit(t, r, 0)
 		if data, _ := os.ReadFile(path); string(data) != systemBackupConfigXml {
-			t.Errorf("file not overwritten with force: %q", data)
+			t.Errorf("file not overwritten with overwrite: %q", data)
 		}
 	})
 	for _, tc := range []struct{ header, want string }{
@@ -331,10 +331,10 @@ func TestSystemBackupDownload(t *testing.T) {
 			}
 		})
 	}
-	t.Run("force with file=- is refused", func(t *testing.T) {
+	t.Run("overwrite with file=- is refused", func(t *testing.T) {
 		t.Parallel()
 		var f, dir = setup(t)
-		wantFailure(t, runOpnIn(t, dir, f.env(), "/system/backup", "download", "file=-", "force"), "download: force has no effect")
+		wantFailure(t, runOpnIn(t, dir, f.env(), "/system/backup", "download", "file=-", "overwrite"), "download: overwrite has no effect")
 		wantNoCalls(t, f)
 	})
 	t.Run("unknown id writes no file and does not download", func(t *testing.T) {
@@ -546,7 +546,7 @@ func TestSystemBackupHelp(t *testing.T) {
 		{[]string{"/system/backup", "?"}, []string{"print", "providers", "download", "diff", "revert", "remove"}},
 		{[]string{"/system/backup", "revert", "?"}, []string{"confirm", "item=", "WHOLE"}},
 		{[]string{"/system/backup", "remove", "?"}, []string{"confirm", "item="}},
-		{[]string{"/system/backup", "download", "?"}, []string{"file=", "force", "0600"}},
+		{[]string{"/system/backup", "download", "?"}, []string{"file=", "overwrite", "0600"}},
 		{[]string{"/system/backup", "diff", "?"}, []string{"from=", "to=", "default current"}},
 	} {
 		t.Run(systemBackupName(tc.args), func(t *testing.T) {

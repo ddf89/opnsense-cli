@@ -61,7 +61,9 @@ func TestTorchFollow(t *testing.T) {
 	f.on("GET", ifaceTestInterfaces, 200, ifaceTestInterfacesAnswer)
 	f.on("GET", "/api/diagnostics/traffic/top/lan", 200, `{"lan":{"records":[],"status":"ok"}}`)
 	var p = f.start("/tool", "torch", "interface=lan", "interval=20ms")
-	f.waitForConnections("/api/diagnostics/traffic/top/lan", 3)
+	// the polls are sequential: query 4 is only sent after refresh 3 was printed, so this waits for 3 refreshes
+	// (waiting for 3 queries raced with printing the third answer under load)
+	f.waitForConnections("/api/diagnostics/traffic/top/lan", 4)
 	p.waitFor("lan: no traffic")
 	var r = p.interrupt()
 	wantExit(t, r, 0)

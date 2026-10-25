@@ -84,7 +84,7 @@ the same:
 | `/system/logging` | `print set stats` | `set enabled= local= max-preserve= max-file-size=` |
 | `/system/logging/destination` | `print show add set remove enable disable` | `hostname= transport= port= program= level= facility= certificate= rfc5424 description= disabled`; items: the description |
 | `/system/logging/service` | `status restart reconfigure` | |
-| `/system/backup` | `print providers download diff revert remove` | `provider=`, `download [item] file= force`, `diff from= to=`; items: backup ids like `config-1792886029.2372.xml`, `current` |
+| `/system/backup` | `print providers download diff revert remove` | `provider=`, `download [item] file= overwrite`, `diff from= to=`; items: backup ids like `config-1792886029.2372.xml`, `current` |
 | `/system/defaults` | `print reset` | |
 | `/system/wizard` | `print` | read-only, passwords are never shown |
 | `/system` | `reboot shutdown` | `reboot wait timeout= poll-interval=` |
@@ -191,7 +191,7 @@ arguments (`--search x` is `search=x`, `-n 10` is `lines=10`, `-f/--follow` is `
 | `system logging destination update\|show\|rm\|enable\|disable --description x` | `/system/logging/destination set\|show\|remove\|enable\|disable x` |
 | `system logging service status\|restart\|reconfigure` | `/system/logging/service ...` |
 | `system backup list -p P`, `providers` | `/system/backup print provider=P`, `providers` |
-| `system backup download --id I -o f -f` | `/system/backup download I file=f force` |
+| `system backup download --id I -o f -f` | `/system/backup download I file=f overwrite` |
 | `system backup diff --from A --to B` | `/system/backup diff from=A to=B` (or `diff A`, against current) |
 | `system backup revert\|rm --id I --yes` | `/system/backup revert\|remove I confirm=yes` |
 | `system wizard show`, `system defaults show` | `/system/wizard print`, `/system/defaults print` |

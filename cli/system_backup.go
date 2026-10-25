@@ -54,16 +54,16 @@ func init() {
 			Help: "save a config.xml (the current configuration by default)",
 			Long: `The file contains secrets (password hashes, API keys, private keys), so it is written to a file
 (mode 0600) named like OPNsense suggests (config-<host>-<time>.xml) unless file= is given; file=- writes
-to stdout. An existing file is only overwritten with force.`,
+to stdout. An existing file is only overwritten with overwrite.`,
 			Args: []Arg{
 				itemArg(systemBackupItemHelp+", or current", false),
 				providerArg,
 				{Name: "file", Help: "file to write, - for stdout (default: the name suggested by OPNsense)"},
-				{Name: "force", Type: Bool, Help: "overwrite an existing file"},
+				{Name: "overwrite", Type: Bool, Help: "overwrite an existing file"},
 			},
 			Check: func(args *Args) error {
-				if args.Bool("force") && args.String("file") == "-" {
-					return errors.New("force has no effect with file=- (stdout)")
+				if args.Bool("overwrite") && args.String("file") == "-" {
+					return errors.New("overwrite has no effect with file=- (stdout)")
 				}
 				return nil
 			},
@@ -279,13 +279,13 @@ func systemBackupDownload(c *Context, args *Args) error {
 		filename = output
 	}
 	var flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	if args.Bool("force") {
+	if args.Bool("overwrite") {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	}
 	file, err := os.OpenFile(filename, flags, 0o600)
 	if err != nil {
 		if os.IsExist(err) {
-			return fmt.Errorf("%s already exists, add force to overwrite it", filename)
+			return fmt.Errorf("%s already exists, add overwrite to replace it", filename)
 		}
 		return err
 	}
