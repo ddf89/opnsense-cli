@@ -326,7 +326,9 @@ func captivePortalZonePrint(c *Context, args *Args) error {
 	switch {
 	case args.Bool("json"):
 		for _, row := range raw {
-			c.Println(string(row))
+			if err := c.JSON(row); err != nil {
+				return err
+			}
 		}
 	case args.Bool("detail"):
 		var options, optionsErr = api.ZoneOptions()

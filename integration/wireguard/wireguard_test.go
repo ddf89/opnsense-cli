@@ -206,7 +206,7 @@ func TestCli(t *testing.T) {
 	// the peer generator: a disabled peer and its configuration file
 	var dir = t.TempDir()
 	var genName = testName("cli-gen")
-	result = runOpnIn(t, dir, peerMenu, "generate", "name="+genName, "instance="+name, "disabled", "psk",
+	result = runOpnIn(t, dir, peerMenu, "generate", "name="+genName, "instance="+name, "disabled", "generate-psk",
 		"endpoint=vpn.example.com:61941", "dns=192.0.2.53", "keepalive=25")
 	if result.exitCode != 0 {
 		t.Fatalf("generate:\n%s", result)
