@@ -43,7 +43,7 @@ func TestSystemMemoryPrint(t *testing.T) {
 		t.Errorf("json: %s", r.stdout)
 	}
 
-	r = f.run("/system/memory", "print", "sort=name")
+	r = f.run("/system/memory", "print", "sort=Name") // values are case-insensitive
 	wantExit(t, r, 0)
 	lines = strings.Split(strings.TrimSpace(r.stdout), "\n")
 	if !strings.HasPrefix(lines[1], "bounce") || !strings.HasPrefix(lines[2], "CAM periph") || !strings.HasPrefix(lines[3], "devbuf") {
@@ -83,7 +83,7 @@ func TestSystemMemoryPrintZones(t *testing.T) {
 
 func TestSystemMemoryErrors(t *testing.T) {
 	var f = newFakeOPN(t)
-	wantFailure(t, f.run("/system/memory", "print", "sort=fail"), "sort=fail only with zone")
+	wantFailure(t, f.run("/system/memory", "print", "sort=FAIL"), "sort=FAIL only with zone")
 	wantFailure(t, f.run("/system/memory", "print", "sort=bogus"), "sort")
 	wantFailure(t, f.run("/system/memory", "print", "limit=-1"), "limit")
 	wantNoCalls(t, f)

@@ -128,11 +128,11 @@ func TestFirmwareReads(t *testing.T) {
 	}
 }
 
-// TestFirmwareCheckAndAudit runs a check for updates (downloads the catalogue, changes nothing installed) and a
-// security audit through the library: both are background actions followed to the end
-func TestFirmwareCheckAndAudit(t *testing.T) {
+// TestFirmwareAudit runs a security audit through the library, a background action followed to the end. A check
+// for updates is never run live: it can upgrade pkg itself (it did, 2.3.1 -> 2.8.4 on opnsense-dev)
+func TestFirmwareAudit(t *testing.T) {
 	var opn = systemApi(t)
-	for _, action := range []system.FirmwareAction{system.FirmwareActionCheck, system.FirmwareActionAudit} {
+	for _, action := range []system.FirmwareAction{system.FirmwareActionAudit} {
 		if busy, err := opn.FirmwareBusy(); err != nil || busy {
 			t.Skipf("a firmware action is running (%v), not starting %s", err, action)
 		}
@@ -153,9 +153,6 @@ func TestFirmwareCheckAndAudit(t *testing.T) {
 			!strings.HasSuffix(strings.TrimSpace(output.String()), "***DONE***") {
 			t.Errorf("%s: unexpected end %q with output:\n%s", action, progress.Status, output.String())
 		}
-	}
-	if status, err := opn.FirmwareStatus(); err != nil || status.LastCheck == "" {
-		t.Errorf("want a last check after the check, got %+v %v", status, err)
 	}
 }
 

@@ -42,7 +42,7 @@ the table. json prints the rows as OPNsense returns them, one per line.
 			{Name: "json", Type: Bool, Help: "print the rows as JSON, one object per line"},
 		},
 		Check: func(args *Args) error {
-			switch args.String("sort") {
+			switch strings.ToLower(args.String("sort")) {
 			case "free", "fail", "size":
 				if !args.Bool("zone") {
 					return fmt.Errorf("sort=%s only with zone", args.String("sort"))
@@ -68,7 +68,7 @@ func systemMemoryPrint(c *Context, args *Args) error {
 		return search == "" || strings.Contains(strings.ToLower(name), search)
 	}
 	var limit = args.Int("limit")
-	var sortBy = args.String("sort")
+	var sortBy = strings.ToLower(args.String("sort"))
 
 	if args.Bool("zone") {
 		var zones []diagnostics.MemoryZone

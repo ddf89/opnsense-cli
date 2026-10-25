@@ -92,7 +92,7 @@ func TestToolInsightPrintViews(t *testing.T) {
 		"domain (udp)  53    1.5 kB  15.0%  2026-10-25 13:13:20",
 		"(other)       -     1.0 kB  10.0%  -")
 
-	r = f.run("/tool/insight", "print", "by=protocol", "measure=packets", "from=1792850000", "to=1792936000")
+	r = f.run("/tool/insight", "print", "by=protocol", "measure=Packets", "from=1792850000", "to=1792936000")
 	wantExit(t, r, 0)
 	wantContains(t, "stdout", r.stdout, "PROTOCOL  NUMBER  PACKETS  SHARE", "tcp       6       90       90.0%", "udp       17      10       10.0%")
 
@@ -171,7 +171,7 @@ func TestToolInsightHistory(t *testing.T) {
 		t.Errorf("json: %s", r.stdout)
 	}
 
-	r = f.run("/tool/insight", "history", "from=1792935400", "to=1792936000", "measure=bytes")
+	r = f.run("/tool/insight", "history", "from=1792935400", "to=1792936000", "measure=BYTES")
 	wantExit(t, r, 0)
 	wantContains(t, "stdout", r.stdout, "UPLINK-IN", "2.5 MB")
 
