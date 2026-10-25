@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	coreapi "opnsense-cli/opnsense/api"
@@ -124,4 +125,31 @@ func (opn *WireguardApi) mutateSet(endpoint string, container string, name strin
 // tooManyByName returns the *TooManyFoundError for several records with the same name
 func tooManyByName(what string, name string, uuids []string) error {
 	return &coreapi.TooManyFoundError{Name: fmt.Sprintf("%d %ss named %q (uuids: %s)", len(uuids), what, name, strings.Join(uuids, ", "))}
+}
+
+// searchRows keeps the rows where any non-secret column contains phrase (case-insensitive, "" keeps all). It
+// replaces OPNsense's searchPhrase, which also matches the private and pre-shared keys and so would let a search
+// probe their content
+func searchRows(rows []json.RawMessage, phrase string, secrets []string) []json.RawMessage {
+	if phrase == "" {
+		return rows
+	}
+	phrase = strings.ToLower(phrase)
+	var matching = make([]json.RawMessage, 0, len(rows))
+	for _, row := range rows {
+		var columns map[string]any
+		if json.Unmarshal(row, &columns) != nil {
+			continue
+		}
+		for name, value := range columns {
+			if slices.Contains(secrets, name) {
+				continue
+			}
+			if text := fmt.Sprint(value); strings.Contains(strings.ToLower(text), phrase) {
+				matching = append(matching, row)
+				break
+			}
+		}
+	}
+	return matching
 }
