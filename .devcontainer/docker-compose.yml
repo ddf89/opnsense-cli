@@ -1,0 +1,32 @@
+volumes:
+  apikeys:
+    
+services:
+  opnsense-cli-dev:
+    image: mcr.microsoft.com/devcontainers/go:2-1.25
+    depends_on:
+      - opnsense-dev
+    command: sleep infinity
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../:/workspace/opnsense-cli
+      - apikeys:/keys:rw
+
+  opnsense-dev:
+    image: ghcr.io/ddf89/docker-opnsense:26.7
+    devices:
+      - /dev/kvm
+    # device_cgroup_rules:
+    #   - 'c 10:232 rwm'
+    cap_add:
+      - NET_ADMIN
+    stop_grace_period: 3m
+    container_name: opnsense-dev
+    volumes:
+      - apikeys:/root/keys:rw
+    ports:
+      - "8180:80"
+      - "10443:443"
+      - "2122:22"
+      - "5153:53"

@@ -1,6 +1,6 @@
-.idea/workspace.xml
+.idea/
 .env
 vendor
-#dist/
+dist/
 http/*.private.env.json
-dist/*
+.vscode/.env
