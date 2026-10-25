@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	coreapi "opnsense-cli/opnsense/api"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -228,6 +229,21 @@ func runOpn(t *testing.T, env []string, args ...string) runResult {
 func runOpnIn(t *testing.T, dir string, env []string, args ...string) runResult {
 	t.Helper()
 	return runOpnWithStdin(t, dir, env, "", args...)
+}
+
+// fakeSession is an in-process session with the real Root menus talking to the fake server, for tests of
+// completion and other session behaviour that the binary can't show
+func fakeSession(t *testing.T, f *fakeOPN) *Session {
+	t.Helper()
+	var base, err = url.Parse(f.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var session = NewSession(io.Discard, io.Discard)
+	session.Configure = func() (*coreapi.OPNsense, error) {
+		return &coreapi.OPNsense{BaseUrl: *base, ApiKey: testApiKey, ApiSecret: testApiSecret, NoSslVerify: true}, nil
+	}
+	return session
 }
 
 // runScript runs the CLI in script mode: no command arguments, the lines come from stdin
