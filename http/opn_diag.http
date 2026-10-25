@@ -1,0 +1,160 @@
+###
+### Diagnostics requests, all read-only. The ".../stream..." and ".../live" endpoints are server-sent events
+### (Content-Type: text/event-stream, "event: message" + "data: {json}" per record) that stay open until you
+### cancel them, e.g. curl -N.
+###
+
+###
+### Logs: the menu tree, the log pages are linked as /ui/diagnostics/log/<module>/<scope>
+###
+GET {{baseUrl}}/api/core/menu/tree
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Logs: newest lines of a log (newest first), module "core" and scope "system" here
+### severity is a comma separated list like "Error,Warning", empty for all
+###
+POST {{baseUrl}}/api/diagnostics/log/core/system
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{"current": 1, "rowCount": 50, "searchPhrase": "", "severity": ""}
+
+###
+### Logs: live stream (SSE), replays the last <offset> lines first
+###
+GET {{baseUrl}}/api/diagnostics/log/core/system/live?offset=5
+Authorization: Basic {{username}} {{password}}
+Accept: text/event-stream
+
+# WARNING: empties the log for everyone, there is no undo
+#
+# POST {{baseUrl}}/api/diagnostics/log/core/system/clear
+
+###
+### Firewall log: newest records (newest first), add &digest=<digest> to only get records newer than that one
+###
+GET {{baseUrl}}/api/diagnostics/firewall/log?limit=50
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Firewall log: live stream (SSE), throttled by OPNsense and lossy
+###
+GET {{baseUrl}}/api/diagnostics/firewall/stream_log
+Authorization: Basic {{username}} {{password}}
+Accept: text/event-stream
+
+###
+### Firewall log: values to filter by (action, interface, direction)
+###
+GET {{baseUrl}}/api/diagnostics/firewall/log_filters
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Firewall log: top 10 counts of the newest records grouped by a field
+###
+GET {{baseUrl}}/api/diagnostics/firewall/stats?group_by=interface&limit=5000
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Interface device to name mapping (vtnet0 -> LAN)
+###
+GET {{baseUrl}}/api/diagnostics/interface/getInterfaceNames
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Traffic: counters per interface since boot
+###
+GET {{baseUrl}}/api/diagnostics/traffic/interface
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Traffic: live counter deltas per interface (SSE), one event per <interval> seconds
+###
+GET {{baseUrl}}/api/diagnostics/traffic/stream/1
+Authorization: Basic {{username}} {{password}}
+Accept: text/event-stream
+
+###
+### Traffic: top talkers of the given interfaces (comma separated), takes a few seconds
+###
+GET {{baseUrl}}/api/diagnostics/traffic/top/lan,wan
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### CPU: model
+###
+GET {{baseUrl}}/api/diagnostics/cpu_usage/getCPUType
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### CPU: usage in percent (SSE), one event per second, the first one is the average since boot
+###
+GET {{baseUrl}}/api/diagnostics/cpu_usage/stream
+Authorization: Basic {{username}} {{password}}
+Accept: text/event-stream
+
+###
+### Activity (top), takes about 2 seconds
+###
+GET {{baseUrl}}/api/diagnostics/activity/get_activity
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### System summary: name and versions
+###
+GET {{baseUrl}}/api/diagnostics/system/system_information
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### System summary: uptime, date, load averages
+###
+GET {{baseUrl}}/api/diagnostics/system/system_time
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### System summary: memory
+###
+GET {{baseUrl}}/api/diagnostics/system/system_resources
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### System summary: file systems
+###
+GET {{baseUrl}}/api/diagnostics/system/system_disk
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### System summary: swap
+###
+GET {{baseUrl}}/api/diagnostics/system/system_swap
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### System summary: mbuf usage
+###
+GET {{baseUrl}}/api/diagnostics/system/system_mbuf
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### System summary: temperature sensors (empty on VMs)
+###
+GET {{baseUrl}}/api/diagnostics/system/system_temperature
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
