@@ -29,6 +29,13 @@ func (r opnResult) String() string {
 // runOpnIn runs the CLI in dir (an empty temp dir when "") with the current environment
 func runOpnIn(t *testing.T, dir string, args ...string) opnResult {
 	t.Helper()
+	return runOpnStdin(t, dir, "", args...)
+}
+
+// runOpnStdin runs the CLI in dir (an empty temp dir when "") with stdin, which is never a terminal: without a
+// command opn runs it as a script
+func runOpnStdin(t *testing.T, dir string, stdin string, args ...string) opnResult {
+	t.Helper()
 	requireLive(t)
 	if opnBuildErr != nil {
 		t.Fatalf("the opn binary could not be built: %v", opnBuildErr)
@@ -42,6 +49,7 @@ func runOpnIn(t *testing.T, dir string, args ...string) opnResult {
 	var command = exec.CommandContext(ctx, opnBinary, args...)
 	command.Dir = dir
 	command.Env = os.Environ()
+	command.Stdin = strings.NewReader(stdin)
 
 	var stdout, stderr strings.Builder
 	command.Stdout = &stdout
@@ -66,14 +74,22 @@ func mustOpn(t *testing.T, args ...string) opnResult {
 	return result
 }
 
-// mustFailOpn runs the CLI and fails the test unless it exits with a non zero code
+// mustFailOpn runs the CLI and fails the test unless it exits with 1 and an error message
 func mustFailOpn(t *testing.T, args ...string) opnResult {
 	t.Helper()
 	var result = runOpnIn(t, "", args...)
-	if result.exitCode == 0 {
-		t.Errorf("want a non zero exit code, got:\n%s", result)
+	if result.exitCode != 1 || !strings.HasPrefix(result.stderr, "error: ") {
+		t.Errorf("want exit code 1 and an \"error: \" message, got:\n%s", result)
 	}
 	return result
+}
+
+// requireNoStdout fails unless a mutation printed nothing on stdout (messages and hints go to stderr)
+func requireNoStdout(t *testing.T, result opnResult) {
+	t.Helper()
+	if result.stdout != "" {
+		t.Errorf("want no output on stdout:\n%s", result)
+	}
 }
 
 func requireContains(t *testing.T, result opnResult, output string, want ...string) {

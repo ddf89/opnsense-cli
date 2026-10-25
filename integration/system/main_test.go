@@ -1,6 +1,6 @@
 //go:build integration
 
-// Package integrationsystem runs the System library (opnsense/api/system) and the `opn system` commands against
+// Package integrationsystem runs the System library (opnsense/api/system) and the opn /system menus against
 // a live OPNsense (26.7) instance.
 //
 //	go test -tags integration ./integration/system/... -count=1 -v
