@@ -5,10 +5,14 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"github.com/joho/godotenv"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
+	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type OPNsense struct {
@@ -16,21 +20,56 @@ type OPNsense struct {
 	ApiKey      string
 	ApiSecret   string
 	NoSslVerify bool
+	// Verbose logs every request with its status and duration to stderr
+	Verbose bool
+	client  *http.Client
+	// streamClient has no overall timeout, streams stay open until cancelled
+	streamClient *http.Client
 }
 
-func (opn *OPNsense) Send(request *http.Request) (*http.Response, error) {
-	var client = &http.Client{}
-
+func (opn *OPNsense) initClients() {
+	if opn.client != nil {
+		return
+	}
 	certPool, _ := x509.SystemCertPool()
-	client.Transport = &http.Transport{
+	var transport = &http.Transport{
+		// a custom transport disables HTTP/2 unless forced. OPNsense 26.7 breaks HTTP/1.1 chunked responses
+		// after 64KB ("malformed chunked encoding"), HTTP/2 is fine
+		ForceAttemptHTTP2: true,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: opn.NoSslVerify,
 			RootCAs:            certPool,
 		},
 	}
+	opn.client = &http.Client{Timeout: 60 * time.Second, Transport: transport}
+	opn.streamClient = &http.Client{Transport: transport}
+}
 
+func (opn *OPNsense) Send(request *http.Request) (*http.Response, error) {
+	opn.initClients()
+	return opn.do(opn.client, request)
+}
+
+// SendStream is Send without a timeout, for long-lived responses like text/event-stream. Cancel the request context to stop
+func (opn *OPNsense) SendStream(request *http.Request) (*http.Response, error) {
+	opn.initClients()
+	return opn.do(opn.streamClient, request)
+}
+
+func (opn *OPNsense) do(client *http.Client, request *http.Request) (*http.Response, error) {
 	request.SetBasicAuth(opn.ApiKey, opn.ApiSecret)
-	return client.Do(request)
+	if !opn.Verbose {
+		return client.Do(request)
+	}
+
+	var start = time.Now()
+	var response, err = client.Do(request)
+	if err != nil {
+		log.Printf("%s %s: %v (%s)", request.Method, request.URL, err, time.Since(start).Round(time.Millisecond))
+	} else {
+		log.Printf("%s %s: %s %s (%s)", request.Method, request.URL, response.Proto, response.Status, time.Since(start).Round(time.Millisecond))
+	}
+	return response, err
 }
 
 type NotFoundError struct {
@@ -54,19 +93,19 @@ func (f *TooManyFoundError) Error() string {
 func ConfigureFromEnv() (*OPNsense, error) {
 	_ = godotenv.Load()
 
-	if _, isset := os.LookupEnv("OPN_URL"); !isset {
-		return nil, errors.New(fmt.Sprintf("Please set the OPN_URL to your opnsense opnUrl like https://myopnsense:10443"))
+	if os.Getenv("OPN_URL") == "" {
+		return nil, errors.New("please set OPN_URL to the URL of your OPNsense, like https://myopnsense:10443")
 	}
 
-	if _, isset := os.LookupEnv("OPN_APIKEY"); !isset {
-		return nil, errors.New(fmt.Sprintf("Please set OPN_APIKEY to your opnsense api apiKey"))
+	if os.Getenv("OPN_APIKEY") == "" {
+		return nil, errors.New("please set OPN_APIKEY to your OPNsense API key")
 	}
 
-	if _, isset := os.LookupEnv("OPN_APISECRET"); !isset {
-		return nil, errors.New(fmt.Sprintf("Please set OPN_APISECRET to your opnsense api apiSecret"))
+	if os.Getenv("OPN_APISECRET") == "" {
+		return nil, errors.New("please set OPN_APISECRET to your OPNsense API secret")
 	}
 
-	var parsedUrl, err = url.Parse(os.Getenv("OPN_URL"))
+	var parsedUrl, err = url.Parse(strings.TrimRight(os.Getenv("OPN_URL"), "/"))
 	if err != nil {
 		return nil, err
 	}
