@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/eugenmayer/opnsense-cli/opnsense/api/unbound"
 	"github.com/spf13/cobra"
 	"log"
 	"net"
+	"opnsense-cli/opnsense/api/unbound"
 )
 
 var unboundHostOverrideCreateCmd = &cobra.Command{
