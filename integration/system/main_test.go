@@ -14,7 +14,9 @@
 //
 // Safety (the instance is shared): records are only created with the description prefix a8-sys-<random run id>,
 // cron jobs and syslog destinations are always disabled, tunables are only set to their current runtime value,
-// logging settings are restored exactly. Factory reset, backup revert and wizard set are never called.
+// logging settings are restored exactly. Test gateways and static routes are never the default and are never
+// applied (the dynamic WAN gateways are never changed), only certificates, CAs and CRLs created here are touched.
+// Factory reset, backup revert and wizard set are never called.
 // TestMain finally sweeps (only) records carrying this run's prefix and fails the run if it found any.
 package integrationsystem
 
@@ -160,6 +162,7 @@ type rawRow struct {
 	Description string `json:"description"`
 	Descr       string `json:"descr"`
 	Tunable     string `json:"tunable"`
+	Refid       string `json:"refid"`
 }
 
 func rawSearch(core *api.OPNsense, endpoint string, phrase string) ([]rawRow, error) {
@@ -208,6 +211,39 @@ func sweep() []string {
 			if ownedByRun(row.Description) {
 				del("syslog destination", "syslog/settings/del_destination", row.Uuid)
 				destinationsRemoved = true
+			}
+		}
+	}
+
+	// routes and groups first, a gateway in use can not be deleted. Never applied, the routes stay untouched
+	for _, kind := range []struct{ what, search, del string }{
+		{"static route", "routes/routes/searchroute", "routes/routes/delroute"},
+		{"gateway group", "routing/group_settings/search", "routing/group_settings/del"},
+		{"gateway", "routing/settings/search_gateway", "routing/settings/del_gateway"},
+	} {
+		if rows, err := rawSearch(core, kind.search, runPrefix); err == nil {
+			for _, row := range rows {
+				if ownedByRun(row.Descr) {
+					del(kind.what, kind.del, row.Uuid)
+				}
+			}
+		}
+	}
+
+	// certificates, then the revocation lists and the authorities that issued them
+	if rows, err := rawSearch(core, "trust/cert/search", runPrefix); err == nil {
+		for _, row := range rows {
+			if ownedByRun(row.Descr) {
+				del("certificate", "trust/cert/del", row.Uuid)
+			}
+		}
+	}
+	if rows, err := rawSearch(core, "trust/ca/search", runPrefix); err == nil {
+		for _, row := range rows {
+			if ownedByRun(row.Descr) {
+				var deleted map[string]any
+				_ = core.DoJSON("POST", core.EndpointForModule("trust/crl/del/"+row.Refid), nil, &deleted)
+				del("ca", "trust/ca/del", row.Uuid)
 			}
 		}
 	}
