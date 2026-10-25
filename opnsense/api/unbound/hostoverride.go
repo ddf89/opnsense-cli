@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	coreapi "github.com/eugenmayer/opnsense-cli/opnsense/api"
 	"io"
 	"net/http"
+	coreapi "opnsense-cli/opnsense/api"
 )
 
 //goland:noinspection GoNameStartsWithPackageName

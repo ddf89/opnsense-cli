@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	opnsenseapi "github.com/eugenmayer/opnsense-cli/opnsense/api"
 	"github.com/spf13/cobra"
 	"log"
+	opnsenseapi "opnsense-cli/opnsense/api"
 	"os"
 )
 
