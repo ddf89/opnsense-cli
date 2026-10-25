@@ -1,0 +1,24 @@
+{
+	"name": "GO with Opnsense",
+	"dockerComposeFile": [
+		"docker-compose.yml"
+	],
+	"service": "opnsense-cli-dev",
+	"postCreateCommand": "curl -fsSL https://claude.ai/install.sh | bash ; echo \"export PATH=$HOME/.local/bin:$PATH\" >> ~/.bashrc",
+	"postStartCommand": "sudo bash .devcontainer/wait-for-keys.sh ; go mod tidy",
+	"forwardPorts": [
+		8080
+	],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ChaunceyKiwi.json-tree-view",
+				"redhat.vscode-yaml",
+				"github.vscode-github-actions",
+				"esbenp.prettier-vscode"
+			]
+		}
+	},
+	"workspaceFolder": "/workspace/${localWorkspaceFolderBasename}",
+	"remoteUser": "vscode"
+}
