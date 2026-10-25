@@ -106,15 +106,15 @@ func (opn *UnboundApi) StatisticsTotals(top int) (Totals, error) {
 		return Totals{}, nil
 	}
 	var answer struct {
-		Total         Number                 `json:"total"`
-		Passed        Number                 `json:"passed"`
-		BlocklistSize Number                 `json:"blocklist_size"`
-		Resolved      Count                  `json:"resolved"`
-		Blocked       Count                  `json:"blocked"`
-		Local         Count                  `json:"local"`
-		StartTime     Number                 `json:"start_time"`
-		Top           map[string]DomainCount `json:"top"`
-		TopBlocked    map[string]DomainCount `json:"top_blocked"`
+		Total         Number       `json:"total"`
+		Passed        Number       `json:"passed"`
+		BlocklistSize Number       `json:"blocklist_size"`
+		Resolved      Count        `json:"resolved"`
+		Blocked       Count        `json:"blocked"`
+		Local         Count        `json:"local"`
+		StartTime     Number       `json:"start_time"`
+		Top           domainCounts `json:"top"`
+		TopBlocked    domainCounts `json:"top_blocked"`
 	}
 	if err := json.Unmarshal(raw, &answer); err != nil {
 		return Totals{}, fmt.Errorf("unexpected answer from unbound totals: %w", err)
@@ -126,9 +126,19 @@ func (opn *UnboundApi) StatisticsTotals(top int) (Totals, error) {
 	}, nil
 }
 
-// sortedDomains turns the domain map of the totals answer into a list sorted by count (descending), then name.
-// The empty map is sent as [] and decodes to nil
-func sortedDomains(domains map[string]DomainCount) []DomainCount {
+// domainCounts is the domain map of the totals answer; PHP sends the empty map as [], which decodes to nil
+type domainCounts map[string]DomainCount
+
+func (d *domainCounts) UnmarshalJSON(data []byte) error {
+	if trimmed := bytes.TrimSpace(data); bytes.HasPrefix(trimmed, []byte("[")) || bytes.Equal(trimmed, []byte("null")) {
+		*d = nil
+		return nil
+	}
+	return json.Unmarshal(data, (*map[string]DomainCount)(d))
+}
+
+// sortedDomains turns the domain map of the totals answer into a list sorted by count (descending), then name
+func sortedDomains(domains domainCounts) []DomainCount {
 	var result = make([]DomainCount, 0, len(domains))
 	for domain, count := range domains {
 		count.Domain = domain

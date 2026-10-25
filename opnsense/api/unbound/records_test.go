@@ -74,8 +74,8 @@ func TestForwardCreateUsesTheEndpointOfTheType(t *testing.T) {
 
 func TestForwardUpdateConvertsTheType(t *testing.T) {
 	var api, requests = newRecordTestApi(t, map[string]string{
-		forwardSearch: `{"rows":[{"uuid":"f1","type":"forward"}]}`,
-		dotSearch:     `{"rows":[]}`,
+		forwardSearch:                           `{"rows":[{"uuid":"f1","type":"forward"}]}`,
+		dotSearch:                               `{"rows":[]}`,
 		"POST /api/unbound/settings/set_dot/f1": `{"result":"saved"}`,
 	})
 	if err := api.ForwardUpdate("f1", "dot", Patch{"type": "dot", "port": "853"}); err != nil {
@@ -97,7 +97,7 @@ func TestForwardUpdateConvertsTheType(t *testing.T) {
 
 func TestAclDefaultAction(t *testing.T) {
 	var api, requests = newRecordTestApi(t, map[string]string{
-		"GET /api/unbound/settings/get": `{"unbound":{"general":{"port":"53"},"acls":{"default_action":{"allow":{"value":"Allow","selected":0},"refuse":{"value":"Refuse","selected":1}},"acl":{"a1":{"name":"x"}}}}}`,
+		"GET /api/unbound/settings/get":  `{"unbound":{"general":{"port":"53"},"acls":{"default_action":{"allow":{"value":"Allow","selected":0},"refuse":{"value":"Refuse","selected":1}},"acl":{"a1":{"name":"x"}}}}}`,
 		"POST /api/unbound/settings/set": `{"result":"saved"}`,
 	})
 	if action, err := api.AclDefaultAction(); err != nil || action != "refuse" {
@@ -143,7 +143,7 @@ func TestSystemNameservers(t *testing.T) {
 
 func TestBlocklistAddDomain(t *testing.T) {
 	var api, requests = newRecordTestApi(t, map[string]string{
-		"GET /api/unbound/settings/search_dnsbl":       `{"rows":[{"uuid":"b1","description":"ads"}]}`,
+		"GET /api/unbound/settings/search_dnsbl":      `{"rows":[{"uuid":"b1","description":"ads"}]}`,
 		"POST /api/unbound/settings/update_blocklist": `{"status":"OK"}`,
 	})
 	if err := api.BlocklistAddDomain("b1", "ads.example", true); err != nil {
@@ -157,7 +157,7 @@ func TestBlocklistAddDomain(t *testing.T) {
 	}
 
 	api, _ = newRecordTestApi(t, map[string]string{
-		"GET /api/unbound/settings/search_dnsbl":       `{"rows":[{"uuid":"b1"}]}`,
+		"GET /api/unbound/settings/search_dnsbl":      `{"rows":[{"uuid":"b1"}]}`,
 		"POST /api/unbound/settings/update_blocklist": `{"status":"failed"}`,
 	})
 	if err := api.BlocklistAddDomain("b1", "ads.example", false); err == nil || !strings.Contains(err.Error(), "already") {

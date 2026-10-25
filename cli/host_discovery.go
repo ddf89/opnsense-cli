@@ -24,7 +24,7 @@ func init() {
 first and last seen).`,
 			Args: []Arg{
 				{Name: "detail", Type: Bool, Help: "show all fields of every host"},
-				{Name: "json", Type: Bool, Help: "one JSON object per line, as the API returns them"},
+				{Name: "json", Type: Bool, Help: "one JSON object per line with the API field names"},
 				{Name: "search", Help: "only hosts where any field contains this text (case-insensitive)"},
 				{Name: "interface", Help: "only hosts on this interface (its description, like LAN)"},
 			}, Run: hostDiscoveryPrint},

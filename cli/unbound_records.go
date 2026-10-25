@@ -166,7 +166,12 @@ certificate against verify= when given. Several entries for the same domain are 
 			if err != nil {
 				return err
 			}
-			return api.ForwardUpdate(row.uuid(), patch["type"], patch)
+			// enable / disable send only the enabled field, without the type Prepare adds for add and set
+			var forwardType = patch["type"]
+			if forwardType == "" {
+				forwardType = row["type"]
+			}
+			return api.ForwardUpdate(row.uuid(), forwardType, patch)
 		},
 	}, "forward", (*unbound.UnboundApi).ForwardCreate, nil, (*unbound.UnboundApi).ForwardRemove)
 	// search_forward only returns the plain forwards, search_dot the DNS over TLS ones: list both

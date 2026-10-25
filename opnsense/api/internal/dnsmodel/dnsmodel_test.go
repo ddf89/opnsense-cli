@@ -68,7 +68,7 @@ func TestGetFiltersBySearch(t *testing.T) {
 
 func TestUpdateChecksExistenceFirst(t *testing.T) {
 	var opn, requests = testServer(t, map[string]string{
-		searchPath: `{"rows":[{"uuid":"a"}]}`,
+		searchPath:                               `{"rows":[{"uuid":"a"}]}`,
 		"POST /api/dnsmasq/settings/set_range/a": `{"result":"saved"}`,
 	})
 	if err := Update(opn, testKind, "a", Patch{"lease_time": "60"}); err != nil {
@@ -93,7 +93,7 @@ func TestUpdateChecksExistenceFirst(t *testing.T) {
 
 func TestUpdateBareFailureIsNotFound(t *testing.T) {
 	var opn, _ = testServer(t, map[string]string{
-		searchPath: `{"rows":[{"uuid":"a"}]}`,
+		searchPath:                               `{"rows":[{"uuid":"a"}]}`,
 		"POST /api/dnsmasq/settings/set_range/a": `{"result":"failed"}`,
 	})
 	if err := Update(opn, testKind, "a", Patch{"x": "1"}); !coreapi.IsNotFound(err) {
@@ -103,7 +103,7 @@ func TestUpdateBareFailureIsNotFound(t *testing.T) {
 
 func TestUpdateValidationError(t *testing.T) {
 	var opn, _ = testServer(t, map[string]string{
-		searchPath: `{"rows":[{"uuid":"a"}]}`,
+		searchPath:                               `{"rows":[{"uuid":"a"}]}`,
 		"POST /api/dnsmasq/settings/set_range/a": `{"result":"failed","validations":{"range.end_addr":["Static only accepts a starting address."]}}`,
 	})
 	var err = Update(opn, testKind, "a", Patch{"mode": "static"})
