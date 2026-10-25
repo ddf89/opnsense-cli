@@ -159,7 +159,10 @@ NEW-ACTION. Policies are applied by priority (lower first, later ones win), rule
 			}},
 		{Arg: Arg{Name: "match-action", Type: List, Help: `only rules whose current action is one of these, "" for any`,
 			Values: []string{ids.PolicyActionDisable, ids.RuleActionAlert, ids.RuleActionDrop}},
-			show: func(p ids.Policy) string { return p.Action }, target: func(f *ids.PolicyFields) **string { return &f.Action }},
+			show: func(p ids.Policy) string { return p.Action }, target: func(f *ids.PolicyFields) **string { return &f.Action },
+			convert: func(_ *Context, value string) (string, error) {
+				return strings.ToLower(strings.Join(splitList(value), ",")), nil
+			}},
 		{Arg: Arg{Name: "new-action", Default: ids.RuleActionAlert, Help: "what the policy sets: default (the rule set's), alert, drop or disable",
 			Values: []string{ids.PolicyNewDefault, ids.RuleActionAlert, ids.RuleActionDrop, ids.PolicyActionDisable}},
 			show: func(p ids.Policy) string { return p.NewAction }, target: func(f *ids.PolicyFields) **string { return &f.NewAction },

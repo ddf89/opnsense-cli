@@ -258,7 +258,7 @@ func TestIdsPolicy(t *testing.T) {
 	wantContains(t, "stdout", r.stdout, "drop trojans", "abuse.ch.feodotracker.rules", "classtype:trojan-activity")
 
 	var added = f.run("/ids/policy", "add", "description=new one", "rulesets=abuse.ch.feodotracker.rules",
-		"metadata=classtype:trojan-activity", "match-action=alert,drop", "disabled")
+		"metadata=classtype:trojan-activity", "match-action=Alert,DROP", "disabled")
 	wantExit(t, added, 0)
 	if added.stdout != "p-new\n" {
 		t.Errorf("add must print the uuid: %q", added.stdout)
