@@ -166,7 +166,7 @@ Accept: application/json
 # POST {{baseUrl}}/api/core/defaults/factory_defaults
 
 ###
-### System status (read-only, used by "opn power reboot --wait" to detect the firewall is back)
+### System status (read-only, used by "opn /system reboot wait" to detect the firewall is back)
 ###
 GET {{baseUrl}}/api/core/system/status
 Authorization: Basic {{username}} {{password}}
