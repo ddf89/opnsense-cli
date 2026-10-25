@@ -44,6 +44,17 @@ func TestStatisticsTotalsWithoutStatistics(t *testing.T) {
 	}
 }
 
+func TestStatisticsTotalsWithoutBlockedDomains(t *testing.T) {
+	// PHP re-encodes the empty top_blocked map of the qstats script as []
+	var api, _ = newRecordTestApi(t, map[string]string{"GET /api/unbound/overview/totals/10": `{"total":3,"blocklist_size":0,"passed":3,
+		"resolved":{"total":3,"pcnt":"100.00"},"blocked":{"total":0,"pcnt":0},"local":{"total":0,"pcnt":0},"start_time":1761400000,
+		"top":{"a.example":{"total":3,"pcnt":"100.00"}},"top_blocked":[]}`})
+	var totals, err = api.StatisticsTotals(10)
+	if err != nil || !totals.Available || len(totals.Top) != 1 || len(totals.TopBlocked) != 0 {
+		t.Errorf("want totals with one top domain and no blocked ones, got %+v, %v", totals, err)
+	}
+}
+
 func TestStatisticsHistory(t *testing.T) {
 	var api, _ = newRecordTestApi(t, map[string]string{
 		"GET /api/unbound/overview/rolling/1/0":  `{"1761400060":{"total":2,"passed":2,"blocked":0,"dropped":0,"resolved":1,"local":0,"cached":1},"1761400000":{"total":1,"passed":1,"blocked":0,"dropped":0,"resolved":1,"local":0,"cached":0}}`,

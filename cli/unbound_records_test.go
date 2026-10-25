@@ -265,3 +265,18 @@ func TestUnboundRecordsSetNeedsAField(t *testing.T) {
 	}
 	wantNoCalls(t, f)
 }
+
+func TestUnboundForwardEnableDisableKeepType(t *testing.T) {
+	t.Parallel()
+	var f = unboundRecordsFake(t)
+	f.on("POST", "/api/unbound/settings/set_forward/f-corp", 200, answerSaved)
+	f.on("POST", "/api/unbound/settings/set_dot/d-quad9", 200, answerSaved)
+	wantExit(t, f.run("/unbound/forward", "disable", "corp"), 0)
+	wantExit(t, f.run("/unbound/forward", "disable", "quad9"), 0)
+	var calls = f.mutations()
+	if len(calls) != 2 || calls[0].Path != "/api/unbound/settings/set_forward/f-corp" || calls[1].Path != "/api/unbound/settings/set_dot/d-quad9" {
+		t.Fatalf("enable / disable must keep the type of the entry, got %v", calls)
+	}
+	wantJSON(t, calls[0], map[string]any{"dot": map[string]any{"enabled": "0"}})
+	wantJSON(t, calls[1], map[string]any{"dot": map[string]any{"enabled": "0"}})
+}

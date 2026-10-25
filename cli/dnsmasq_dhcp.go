@@ -93,10 +93,10 @@ func dnsmasqRecord[T any](m *dnsRecordMenu, method string,
 
 func init() {
 	dnsmasqRecord(&dnsRecordMenu{
-		Path:     "dnsmasq/tag",
-		Help:     "DHCP tags: labels set by ranges, hosts and option matches and required by options and boot entries",
-		What:     "tag",
-		ItemHelp: "the #, uuid or name of the tag",
+		Path:       "dnsmasq/tag",
+		Help:       "DHCP tags: labels set by ranges, hosts and option matches and required by options and boot entries",
+		What:       "tag",
+		ItemHelp:   "the #, uuid or name of the tag",
 		RemoveLong: `A tag used by a range, option, boot entry or host can not be removed.`,
 		Fields: []dnsField{
 			{Arg: Arg{Name: "name", Help: "the tag name (unique)", Required: true, Validate: dnsNotEmpty}, Api: "tag"},
