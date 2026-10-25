@@ -121,7 +121,7 @@ func TestVpnIpsecStatus(t *testing.T) {
 			`"protocol":"ESP","local-ts":"198.51.100.0/24","remote-ts":"192.0.2.0/24","spi-in":"c1f0aa01","spi-out":"c2f0aa02","encr-alg":"AES_GCM_16",`+
 			`"encr-keysize":256,"bytes-in":1000,"bytes-out":2000}]}`)
 		f.on("GET", "/api/ipsec/sad/search", 200, `{"rows":[{"src":"No","dst":"SAD","satype":null,"spi":null,"nat":"ntries","id":"910a25ff497965ab5bed6120daa20baa"},`+
-			`{"src":"192.0.2.1","dst":"198.51.100.1","satype":"esp","spi":"c1f0aa01","mode":"tunnel","reqid":5,"alg_enc":"aes-gcm-16","id":"`+sadId+`","phase1desc":"site b","phase2desc":"lan"}]}`)
+			`{"src":"192.0.2.1","dst":"198.51.100.1","satype":"esp","spi":"c1f0aa01","mode":"tunnel","reqid":5,"alg_enc":"aes-gcm-16","m_enc":["deadbeef","cafef00d"],"m_auth":["0badc0de"],"id":"`+sadId+`","phase1desc":"site b","phase2desc":"lan"}]}`)
 		f.on("GET", "/api/ipsec/spd/search", 200, `{"rows":[{"src":"198.51.100.0/24","dst":"192.0.2.0/24","src_port":"any","upperspec":"any","dir":"out",`+
 			`"type":"ipsec","proto":"esp","mode":"tunnel","src-dst":["198.51.100.1","192.0.2.1"],"level":"unique","reqid":"5","id":"`+sadId+`"}]}`)
 		f.on("GET", "/api/ipsec/leases/search", 200, `{"rows":[{"pool":"mobile","address":"198.51.100.130","online":true,"user":"alice"},`+
@@ -142,6 +142,16 @@ func TestVpnIpsecStatus(t *testing.T) {
 		t.Errorf("the \"No SAD entries\" row must be dropped:\n%s", r.stdout)
 	}
 	wantContains(t, "stdout", r.stdout, "0  192.0.2.1  198.51.100.1  esp       c1f0aa01  tunnel  5      aes-gcm-16")
+	// the SA keys setkey -D prints are never shown nor searched
+	for _, args := range [][]string{{"print", "detail"}, {"print", "json"}} {
+		r = f.run(append([]string{"/vpn/ipsec/sad"}, args...)...)
+		wantExit(t, r, 0)
+		wantContains(t, "stdout", r.stdout, "********")
+		wantNotContains(t, "stdout", r.stdout, "deadbeef", "cafef00d", "0badc0de")
+	}
+	r = f.run("/vpn/ipsec/sad", "print", "search=deadbeef")
+	wantExit(t, r, 0)
+	wantNotContains(t, "stdout", r.stdout, "c1f0aa01")
 	r = f.run("/vpn/ipsec/spd", "print")
 	wantContains(t, "stdout", r.stdout, "0  out  198.51.100.0/24  192.0.2.0/24  any        ipsec  esp       tunnel  198.51.100.1 - 192.0.2.1  5")
 	r = f.run("/vpn/ipsec/lease", "print", "online")

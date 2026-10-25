@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -42,6 +43,7 @@ func init() {
 
 	for _, kind := range []struct {
 		menu, help, noun, confirm string
+		secrets                   []string // fields masked in detail and json, never searched
 		list                      func(api *ipsec.IPsecApi) ([]ipsec.Record, error)
 		remove                    func(api *ipsec.IPsecApi, id string) error
 		headers                   []string
@@ -49,7 +51,7 @@ func init() {
 	}{
 		{"sad", "security associations of the kernel (VPN > IPsec > Security Association Database)", "security association",
 			"This removes the security association from the kernel, its traffic stops until it is renegotiated.",
-			(*ipsec.IPsecApi).SadList, (*ipsec.IPsecApi).SadRemove,
+			ipsec.SecretFields["sad"], (*ipsec.IPsecApi).SadList, (*ipsec.IPsecApi).SadRemove,
 			[]string{"SRC", "DST", "PROTOCOL", "SPI", "MODE", "REQID", "ENCRYPTION", "AUTH", "BYTES", "CONNECTION", "CHILD"},
 			func(r ipsec.Record) []string {
 				return []string{r.Value("src"), r.Value("dst"), r.Value("satype"), r.Value("spi"), r.Value("mode"), r.Value("reqid"),
@@ -57,7 +59,7 @@ func init() {
 			}},
 		{"spd", "security policies of the kernel (VPN > IPsec > Security Policy Database)", "security policy",
 			"This removes the security policy from the kernel, its traffic is no longer protected or bypassed until it is installed again.",
-			(*ipsec.IPsecApi).SpdList, (*ipsec.IPsecApi).SpdRemove,
+			nil, (*ipsec.IPsecApi).SpdList, (*ipsec.IPsecApi).SpdRemove,
 			[]string{"DIR", "SRC", "DST", "UPPERSPEC", "TYPE", "PROTOCOL", "MODE", "TUNNEL", "REQID", "CONNECTION", "CHILD"},
 			func(r ipsec.Record) []string {
 				return []string{r.Value("dir"), vpnIpsecHostPort(r.Value("src"), r.Value("src_port")), vpnIpsecHostPort(r.Value("dst"), r.Value("dst_port")),
@@ -83,7 +85,8 @@ func init() {
 				if listErr != nil {
 					return listErr
 				}
-				return vpnIpsecStatusPrint(c, args, vpnIpsecSearch(records, args.String("search")), "id", kind.headers, kind.row)
+				return vpnIpsecStatusPrint(c, args, vpnIpsecSearch(records, args.String("search"), kind.secrets...), "id",
+					kind.headers, kind.row, kind.secrets...)
 			}},
 			&Command{Name: "remove", Help: "remove a " + kind.noun + " from the kernel", Confirm: kind.confirm, Args: []Arg{item},
 				Run: func(c *Context, args *Args) error {
@@ -126,8 +129,9 @@ func vpnIpsecHostPort(host string, port string) string {
 	return host + "[" + port + "]"
 }
 
-// vpnIpsecAllFields renders every value of a status row sorted by name, without the "%" display fields
-func vpnIpsecAllFields(r ipsec.Record) [][2]string {
+// vpnIpsecAllFields renders every value of a status row sorted by name, without the "%" display fields and with
+// the secret fields masked
+func vpnIpsecAllFields(r ipsec.Record, secrets ...string) [][2]string {
 	var values = r.Values()
 	var names = make([]string, 0, len(values))
 	for name := range values {
@@ -138,24 +142,30 @@ func vpnIpsecAllFields(r ipsec.Record) [][2]string {
 	sort.Strings(names)
 	var fields = make([][2]string, len(names))
 	for i, name := range names {
-		fields[i] = [2]string{name, values[name]}
+		var value = values[name]
+		if slices.Contains(secrets, name) {
+			value = vpnIpsecMask(value)
+		}
+		fields[i] = [2]string{name, value}
 	}
 	return fields
 }
 
-// vpnIpsecStatusPrint prints status rows as a table, numbered blocks (detail) or ndjson; idField identifies a row
-func vpnIpsecStatusPrint(c *Context, args *Args, records []ipsec.Record, idField string, headers []string, row func(r ipsec.Record) []string) error {
+// vpnIpsecStatusPrint prints status rows as a table, numbered blocks (detail) or ndjson with the secret fields
+// masked; idField identifies a row
+func vpnIpsecStatusPrint(c *Context, args *Args, records []ipsec.Record, idField string, headers []string,
+	row func(r ipsec.Record) []string, secrets ...string) error {
 	var ids = make([]string, len(records))
 	for i, record := range records {
 		ids[i] = record.Value(idField)
 	}
 	switch {
 	case args.Bool("json"):
-		return vpnIpsecPrintJSON(c, records, nil)
+		return vpnIpsecPrintJSON(c, records, secrets)
 	case args.Bool("detail"):
 		var details = make([][][2]string, len(records))
 		for i, record := range records {
-			details[i] = vpnIpsecAllFields(record)
+			details[i] = vpnIpsecAllFields(record, secrets...)
 		}
 		c.Details(details, ids)
 	default:
