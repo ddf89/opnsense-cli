@@ -30,7 +30,7 @@ func toolPingTestRow(status string, sent int, received int, lastError string) st
 }
 
 // toolPingTestFake registers set/start/stop/remove of the test job; search_jobs answers the rows one after the
-// other per request (the last one repeats)
+// other per poll (the last one repeats). A poll is two requests, see toolPingFresh
 func toolPingTestFake(t *testing.T, rows ...string) *fakeOPN {
 	var f = newFakeOPN(t)
 	f.on("POST", toolPingTestSet, 200, `{"result":"ok","uuid":"`+toolPingTestId+`"}`)
@@ -41,7 +41,7 @@ func toolPingTestFake(t *testing.T, rows ...string) *fakeOPN {
 	var n = 0
 	f.onFunc("GET", toolPingTestJobs, func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
-		var row = rows[min(n, len(rows)-1)]
+		var row = rows[min(n/2, len(rows)-1)]
 		n++
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -93,8 +93,8 @@ func TestToolPingCount(t *testing.T) {
 	if got := toolPingTestMutations(f); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("mutations %q, want %q", got, want)
 	}
-	if n := ifaceTestCount(f, toolPingTestJobs); n != 4 {
-		t.Errorf("want 4 polls until 3 packets were sent, got %d", n)
+	if n := ifaceTestCount(f, toolPingTestJobs); n != 8 {
+		t.Errorf("want 4 polls (8 requests) until 3 packets were sent, got %d", n)
 	}
 }
 

@@ -15,6 +15,9 @@ import (
 // toolPingPoll is how often the statistics are read while pinging
 const toolPingPoll = 500 * time.Millisecond
 
+// toolPingSettle is how long ping gets to write its summary after the SIGINFO of a first read (see toolPingFresh)
+const toolPingSettle = 150 * time.Millisecond
+
 func init() {
 	Root.Menu("tool").Add(&Command{
 		Name: "ping",
@@ -97,7 +100,7 @@ func toolPingWatch(c *Context, api *diagnostics.DiagnosticsApi, id string, count
 		toolPingLine(c, "SENT", "RECEIVED", "LOSS", "MIN-RTT", "AVG-RTT", "MAX-RTT", "STATUS")
 	}
 	for {
-		var job, err = systemActivityAwait(c, func() (diagnostics.PingJob, error) { return api.PingJob(id) })
+		var job, err = systemActivityAwait(c, func() (diagnostics.PingJob, error) { return toolPingFresh(c, api, id) })
 		if c.Err() != nil {
 			break // Ctrl-C
 		}
@@ -145,6 +148,22 @@ func toolPingWatch(c *Context, api *diagnostics.DiagnosticsApi, id string, count
 		c.Println()
 	}
 	return nil
+}
+
+// toolPingFresh reads the statistics of the job twice: search_jobs sends SIGINFO to the ping and reads its log
+// right away, before ping wrote the new summary, so a single read shows the numbers of the previous read. Without
+// the second read count=1 could only stop after a second packet went out
+func toolPingFresh(c *Context, api *diagnostics.DiagnosticsApi, id string) (diagnostics.PingJob, error) {
+	if _, err := api.PingJob(id); err != nil {
+		return diagnostics.PingJob{}, err
+	}
+	var timer = time.NewTimer(toolPingSettle)
+	defer timer.Stop()
+	select {
+	case <-c.Done():
+	case <-timer.C:
+	}
+	return api.PingJob(id)
 }
 
 func toolPingLine(c *Context, sent, received, loss, minRtt, avgRtt, maxRtt, status string) {
