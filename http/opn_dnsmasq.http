@@ -1,0 +1,149 @@
+###
+### Add host override / static DHCP reservation
+### ip, cnames, aliases and hwaddr are comma separated lists
+###
+POST {{baseUrl}}/api/dnsmasq/settings/add_host
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "host" : {
+    "host": "test",
+    "domain": "fest.lan",
+    "ip": "10.0.0.10,fd00::10",
+    "cnames": "www.fest.lan",
+    "aliases": "",
+    "hwaddr": "aa:bb:cc:dd:ee:ff",
+    "client_id": "",
+    "lease_time": "",
+    "local": "0",
+    "ignore": "0",
+    "descr": "created by opn",
+    "comments": ""
+  }
+}
+
+###
+### Update host (only the given fields are changed)
+###
+POST {{baseUrl}}/api/dnsmasq/settings/set_host/84364c29-dce8-4d81-9681-a7e789e8c035
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "host" : {
+    "ip": "10.0.0.11"
+  }
+}
+
+###
+### Get host (without uuid you get the defaults / available options)
+###
+GET {{baseUrl}}/api/dnsmasq/settings/get_host/84364c29-dce8-4d81-9681-a7e789e8c035
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Delete host
+###
+POST {{baseUrl}}/api/dnsmasq/settings/del_host/84364c29-dce8-4d81-9681-a7e789e8c035
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Search hosts
+###
+GET {{baseUrl}}/api/dnsmasq/settings/search_host
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Search hosts with search phrase
+###
+GET {{baseUrl}}/api/dnsmasq/settings/search_host?searchPhrase=fest.lan
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Add domain override (forward corp.lan to another DNS server)
+###
+POST {{baseUrl}}/api/dnsmasq/settings/add_domain
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "domainoverride" : {
+    "sequence": "1",
+    "domain": "corp.lan",
+    "ip": "10.0.0.53",
+    "port": "5353",
+    "srcip": "",
+    "descr": "created by opn"
+  }
+}
+
+###
+### Update domain override
+###
+POST {{baseUrl}}/api/dnsmasq/settings/set_domain/84364c29-dce8-4d81-9681-a7e789e8c035
+Authorization: Basic {{username}} {{password}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "domainoverride" : {
+    "ip": "10.0.0.54"
+  }
+}
+
+###
+### Get domain override (without uuid you get the defaults / available options)
+###
+GET {{baseUrl}}/api/dnsmasq/settings/get_domain/84364c29-dce8-4d81-9681-a7e789e8c035
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Delete domain override
+###
+POST {{baseUrl}}/api/dnsmasq/settings/del_domain/84364c29-dce8-4d81-9681-a7e789e8c035
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Search domain overrides
+###
+GET {{baseUrl}}/api/dnsmasq/settings/search_domain?searchPhrase=corp.lan
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Search DHCP leases
+###
+GET {{baseUrl}}/api/dnsmasq/leases/search
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Service status
+###
+GET {{baseUrl}}/api/dnsmasq/service/status
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Service reconfigure (apply host / domain override changes)
+###
+POST {{baseUrl}}/api/dnsmasq/service/reconfigure
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Service start / stop / restart
+###
+POST {{baseUrl}}/api/dnsmasq/service/restart
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
