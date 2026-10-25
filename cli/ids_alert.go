@@ -252,13 +252,6 @@ func idsAlertDefaultQuery(logId string) ids.AlertQuery {
 
 // --- /ids/alert/log
 
-func idsAlertLogId(log ids.AlertLog) string {
-	if log.Sequence == nil {
-		return ""
-	}
-	return strconv.Itoa(*log.Sequence)
-}
-
 func idsAlertLogIds(c *Context) []string {
 	var api, err = idsApi(c)
 	if err != nil {
@@ -270,7 +263,7 @@ func idsAlertLogIds(c *Context) []string {
 	}
 	var result []string
 	for _, log := range logs {
-		if id := idsAlertLogId(log); id != "" {
+		if id := log.Id(); id != "" {
 			result = append(result, id)
 		}
 	}
@@ -312,7 +305,7 @@ func idsAlertLogPrint(c *Context, args *Args) error {
 			continue
 		}
 		names[i] = log.Filename
-		rows[i] = []string{idsAlertLogId(log), log.Filename, log.Modified, strconv.FormatInt(log.Size, 10)}
+		rows[i] = []string{log.Id(), log.Filename, log.Modified, strconv.FormatInt(log.Size, 10)}
 	}
 	if !args.Bool("json") {
 		c.Items([]string{"ID", "FILE", "NEWEST", "SIZE"}, rows, names)

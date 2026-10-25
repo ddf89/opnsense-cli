@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -149,6 +150,15 @@ func TestMonitStatusAndControl(t *testing.T) {
 	}
 	var asJSON = f.run("/monit/status", "print", "json")
 	wantContains(t, "stdout", asJSON.stdout, `{"server":{"uptime":"60"},"service":[{"name":"fw","status":"0"}]}`)
+	var withCredentials = newFakeOPN(t)
+	withCredentials.on("GET", "/api/monit/status/get/xml", 200,
+		`{"result":"ok","status":{"server":{"uptime":"60","credentials":{"username":"root","password":"s3cret"}}}}`)
+	var masked = withCredentials.run("/monit/status", "print", "json")
+	wantExit(t, masked, 0)
+	wantContains(t, "stdout", masked.stdout, `"username":"root"`, `"password":"********"`)
+	if strings.Contains(masked.stdout, "s3cret") {
+		t.Errorf("the httpd password must be masked: %s", masked.stdout)
+	}
 	wantContains(t, "stdout", f.run("/monit/service-control", "status").stdout, "running")
 	wantExit(t, f.run("/monit/service-control", "reconfigure"), 0)
 	wantOneMutation(t, f, "POST", "/api/monit/service/reconfigure")

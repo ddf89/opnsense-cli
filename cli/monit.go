@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/url"
 	"opnsense-cli/opnsense/api/monit"
 	"strings"
@@ -35,7 +36,8 @@ option field.`,
 	status.Help = "the Monit status report (Monit > Status)"
 	status.Add(&Command{Name: "print", Help: "show the status of all monitored services",
 		Long: `Shows the report of "monit status": every service with its state and the values of its tests. Monit
-must be running. json prints the status as one JSON object (OPNsense's form of Monit's XML status).`,
+must be running. json prints the status as one JSON object (OPNsense's form of Monit's XML status, the httpd
+password masked).`,
 		Args: []Arg{{Name: "json", Type: Bool, Help: "print the status as one JSON object"}}, Run: monitStatusPrint})
 
 	var control = Root.Menu("monit/service-control")
@@ -147,7 +149,7 @@ func monitStatusPrint(c *Context, args *Args) error {
 		if statusErr != nil {
 			return statusErr
 		}
-		return c.JSON(status)
+		return c.JSON(monitStatusHideCredentials(status))
 	}
 	var text, statusErr = api.StatusText()
 	if statusErr != nil {
@@ -155,6 +157,26 @@ func monitStatusPrint(c *Context, args *Args) error {
 	}
 	c.Println(text)
 	return nil
+}
+
+// monitStatusHideCredentials masks the httpd password Monit puts into its XML status (server.credentials, sent when
+// M/Monit is set up with "register credentials")
+func monitStatusHideCredentials(status json.RawMessage) json.RawMessage {
+	var document map[string]any
+	if json.Unmarshal(status, &document) != nil {
+		return status
+	}
+	var server, _ = document["server"].(map[string]any)
+	var credentials, _ = server["credentials"].(map[string]any)
+	if password, ok := credentials["password"]; !ok || password == "" {
+		return status
+	}
+	credentials["password"] = "********"
+	var masked, err = json.Marshal(document)
+	if err != nil {
+		return status
+	}
+	return masked
 }
 
 func monitControlStatus(c *Context, _ *Args) error {
