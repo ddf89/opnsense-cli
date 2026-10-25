@@ -5,10 +5,25 @@ Implementation of the OPNsense WebAPI to be used on the CLI or as a library - wr
 Developed and tested against OPNsense 26.7. It uses the current (snake_case) API endpoints, so older releases are not tested and may not work.
 The Dnsmasq commands need the Dnsmasq MVC API, which was introduced with OPNsense 25.1.
 
-Covered: Unbound host overrides, Dnsmasq hosts / static DHCP reservations, domain overrides and leases, the
-services, cron jobs, tunables, logging (incl. remote destinations), configuration backups, factory defaults, the
-setup wizard settings, reboot / shutdown, and diagnostics: log files and the firewall log (tail and follow),
-interface counters and throughput, top talkers, system resources and activity.
+Covered (everything OPNsense 26.7 exposes through its MVC API, legacy PHP pages have no API and are left out):
+
+- **DNS & DHCP**: Unbound (host overrides and aliases, settings, ACLs, forwarding / DNS over TLS, blocklists,
+  statistics), Dnsmasq (hosts, domains, DHCP ranges, options, tags, boot, leases, settings), Kea DHCPv4/v6
+  (subnets, reservations, options, prefix delegation, HA peers, leases), DHCP relay, router advertisements
+- **Firewall**: rules, NAT (source, port forward, one-to-one, NPTv6), aliases and pf tables, interface groups,
+  categories, traffic shaper, states, sessions, statistics, log
+- **VPN**: OpenVPN (instances, static keys, client overrides, sessions, client export), IPsec (connections,
+  authentication rounds, children, pools, VTIs, keys, sessions, SAD/SPD), WireGuard (instances, peers incl.
+  client config generator, status)
+- **Interfaces**: VLAN, LAGG, bridge, GIF, GRE, VXLAN, loopback devices, virtual IPs / CARP, static neighbors,
+  settings, overview, ARP/NDP tables, netstat, host discovery, counters and throughput
+- **System**: users, groups, privileges, API keys, services, firmware and packages, HA sync, snapshots, cron,
+  tunables, logging, backups, factory defaults, gateways, routes, trust (CAs, certificates, CRLs), health
+  graphs, memory, NTP status, resources, activity, reboot / shutdown
+- **Services**: captive portal (zones, templates, sessions, vouchers), intrusion detection (Suricata settings,
+  rule sets, rules, policies, alerts), Monit
+- **Tools**: API connection check, ping, traceroute, port probe, DNS lookup, packet capture, top talkers,
+  NetFlow and Insight
 
 ## Installation
 
@@ -65,6 +80,21 @@ the same:
     opn '/dnsmasq host print'    # a single argument is split like a shell line
     opn /dns ho pr
 
+`opn /check` tests the connection: it makes one read-only API call and prints the firewall's host name, versions,
+TLS state and latency. When it fails, the error names the step (`dns`, `connect`, `tls`, `auth`, `api`) with a
+hint, and the exit code is 1:
+
+    $ opn /check
+    url:       https://opnsense-dev
+    status:    ok
+    hostname:  OPNsense.internal
+    versions:  OPNsense 26.7-amd64, FreeBSD 15.1-RELEASE-p1, OpenSSL 3.5.7
+    tls:       not verified (OPN_NOSSLVERIFY=1)
+    protocol:  HTTP/2.0
+    latency:   121ms
+    $ OPN_APISECRET=wrong opn /check
+    error: auth: authentication failed (check OPN_APIKEY and OPN_APISECRET, and that the key's user is not disabled)
+
 `opn -v ...` logs every API request (method, URL, status, duration) to stderr, credentials are never logged.
 `opn -h` and `opn <path> ?` show the help. Errors are printed as `error: ...` on stderr with exit code 1
 (2 for an unknown option).
@@ -75,10 +105,31 @@ the same:
 |---|---|---|
 | `/unbound/host-override` | `print show add set remove enable disable` | `host= domain= rr=A\|AAAA\|MX\|TXT ip= mx= mx-priority= txtdata= ttl= ptr= description= disabled`; items: `host.domain`, `host.domain/RR` when the FQDN has several records |
 | `/unbound/service` | `status restart reconfigure` | |
+| `/unbound/settings`, `/unbound/advanced` | `print set` | General and Advanced pages: `enabled port= interface= dnssec dns64 register-dhcp ...`, `hide-version prefetch serve-expired ...` |
+| `/unbound/acl` | `print show add set remove enable disable default-action` | `name= action=allow\|deny\|refuse\|... networks= description= disabled`; items: the name |
+| `/unbound/forward` | `print show add set remove enable disable system-nameservers` | query forwarding and DNS over TLS: `type=forward\|dot domain= server= port= verify= forward-first`, `set type=` converts |
+| `/unbound/blocklist` | `print show add set remove enable disable types update allow block test` | DNSBL policies: `type= lists= allowlists= blocklists= wildcards= source-nets= nxdomain`; `update` downloads and loads, `allow`/`block` a domain |
+| `/unbound/host-alias` | `print show add set remove enable disable` | aliases of host overrides: `host=<override> hostname= domain= description=` |
+| `/unbound/statistics` | `print queries history counters reset` | totals and top (blocked) domains `top=`, recent queries, unbound-control counters; needs `/unbound/settings set statistics=yes` |
+| `/unbound/diagnostics` | `cache infra local-zones local-data insecure` | dumps of the resolver state |
 | `/dnsmasq/host` | `print show add set remove` | `host= domain= ip= cname= alias= hwaddr= client-id= lease-time= local ignore description= comments=` (lists comma separated); items: `host.domain` or the hostname |
 | `/dnsmasq/domain` | `print show add set remove` | `domain= ip= port= source-ip= sequence= description=`; items: the domain |
 | `/dnsmasq/lease` | `print` | |
 | `/dnsmasq/service` | `status start stop restart reconfigure` | |
+| `/dnsmasq/settings` | `print set` | general DNS and DHCP settings: `enabled interface= port= strict-bind register-dhcp dhcp-first domain-needed ...` |
+| `/dnsmasq/range` | `print show add set remove` | DHCP ranges: `interface= start= end= subnet-mask= lease-time= mode=static prefix-len= ra-mode= set-tag= domain=` |
+| `/dnsmasq/option` | `print show add set remove codes` | DHCP options: `type=set\|match option= option6= interface= tag= set-tag= value= force`; `codes` lists the option names |
+| `/dnsmasq/tag`, `/dnsmasq/boot` | `print show add set remove` | DHCP tags `name=`; boot/PXE entries `interface= tag= filename= servername= address=`; tags are given by name |
+| `/kea/dhcp4/subnet`, `/kea/dhcp6/subnet` | `print show add set remove` | `subnet= pools= description= valid-lifetime= auto-options routers= dns-servers= domain-name= ...` (v6: `interface= pd-allocator= ...`); items: the network or description |
+| `/kea/dhcp4/reservation`, `/kea/dhcp6/reservation` | `print show add set remove` | `ip-address= mac-address= client-id= hostname= description=` (v6: `duid= prefix=`), the subnet is found from the address; items: hostname, MAC or IP |
+| `/kea/dhcp4/option`, `/kea/dhcp6/option`, `/kea/dhcp6/pd-pool` | `print show add set remove` | custom options `code= encoding= data= force`; prefix delegation pools `subnet= prefix= delegated-length=` |
+| `/kea/dhcp4/peer`, `/kea/dhcp6/peer` | `print show add set remove` | HA peers: `name= role=primary\|standby url=` |
+| `/kea/dhcp4/lease`, `/kea/dhcp6/lease` | `print remove` | `print interface= search= detail json` |
+| `/kea/dhcp4/settings`, `/kea/dhcp6/settings`, `/kea/ctrl-agent`, `/kea/ddns` | `print set` | `enabled interfaces= valid-lifetime= firewall-rules ...`, control agent `http-host= http-port=`, DDNS `server-ip= server-port=` |
+| `/kea/service`, `/radvd/service` | `status start stop restart reconfigure` | stop and restart ask for confirmation |
+| `/dhcrelay/destination`, `/dhcrelay/relay` | `print show add set remove` (`enable disable`) | destinations `name= servers=`; relays `interface= destination= agent-info disabled` |
+| `/dhcrelay/service` | `reconfigure` | |
+| `/radvd/entry` | `print show add set remove enable disable` | router advertisements, one per interface: `interface= mode= dns-servers= dns-search= routes= min-interval= max-interval= disabled` |
 | `/system/cron` | `print show add set remove enable disable commands apply` | `description= command= parameters= minutes= hours= days= months= weekdays= who= disabled`; items: the description |
 | `/system/tunable` | `print show add set remove apply` | `name= value= description=`, `print changed`; items: the tunable name |
 | `/system/logging` | `print set stats` | `set enabled= local= max-preserve= max-file-size=` |
@@ -90,6 +141,20 @@ the same:
 | `/system` | `reboot shutdown` | `reboot wait timeout= poll-interval=` |
 | `/system/resource` | `print monitor` | versions, uptime, memory, disks, ...; `monitor` streams the CPU usage, `once` |
 | `/system/activity` | `print` | top: `lines= follow interval=` |
+| `/system/user` | `print show add set remove enable disable password` | `name= password= full-name= email= groups= privileges= shell= expires= disabled`; `password` asks without echo; root and the user of the API key can't be removed or disabled |
+| `/system/user/api-key` | `print add remove` | `add <user> file= overwrite` prints key and secret once; the key opn uses can't be removed |
+| `/system/group` | `print show add set remove` | `name= description= members= privileges= source-networks=`; the admins group is protected |
+| `/system/privilege` | `print show grant revoke` | `print user= group= granted`, `grant <privilege> user= group=` |
+| `/system/service` | `print show start stop restart` | all services (System > Diagnostics > Services); stopping or restarting webgui, configd, openssh, pf or routing needs `confirm=yes` |
+| `/system/firmware` | `status check audit update upgrade log` | `audit type=security\|health\|connection`; actions run on the firewall, opn follows their log (`background` only starts them) |
+| `/system/firmware/package`, `/system/firmware/plugin` | `print show license install remove reinstall lock unlock` | `print all`; everything that changes packages asks for confirmation |
+| `/system/firmware/changelog`, `/system/firmware/settings` | `print show`, `print set` | settings: `mirror= flavour= type= subscription=` (masked) |
+| `/system/ha` | `print set apply status sync` | High Availability: `pfsync-interface= pfsync-peer-ip= synchronize-to-ip= username= password= sync-items=`; `/system/ha/service` controls services on the backup node |
+| `/system/snapshot` | `print show add set remove activate` | ZFS boot environments: `add name= from=` (refused on UFS) |
+| `/system/license` | `print` | `print package=` shows a package's license |
+| `/system/health` | `print export reset-data` | RRD reports: `print` lists them, `print metric= resolution=1m\|5m\|1h\|1d from= to=` shows values; `/system/health/settings` switches collection on |
+| `/system/memory` | `print` | kernel memory per malloc type, `zone` per UMA zone, `sort= limit=` |
+| `/system/ntp` | `status` | NTP peers and GPS, `follow` |
 | `/system/gateway` | `print show add set remove enable disable apply monitor` | `name= interface= protocol=ipv4\|ipv6 address= priority= weight= upstream far-gateway monitor= monitor-disabled latency-low= latency-high= loss-low= loss-high= description= disabled`; items: the gateway name; dynamic gateways (`WAN_DHCP`) are changed by storing an override |
 | `/system/gateway/group` | `print show add set remove apply` | `name= tier1=..tier5= trigger=member-down\|packet-loss\|high-latency\|packet-loss-or-latency pool=default\|round-robin\|round-robin-sticky description=`; items: the group name |
 | `/system/route` | `print show add set remove enable disable apply` | `network= gateway= description= disabled`; items: the network |
@@ -119,9 +184,43 @@ the same:
 | `/vpn/openvpn/session` | `print remove` | connected clients: `print type=server\|client follow`, `remove` (alias `kill`) disconnects |
 | `/vpn/openvpn/route` | `print` | |
 | `/vpn/openvpn/export` | `print show accounts templates set download` | `download <server> account= template= hostname= port= file= overwrite p12-password=` (only enabled servers can be exported) |
+| `/vpn/ipsec/connection` | `print show add set remove enable disable` | `description= version=ike\|ikev1\|ikev2 proposals= local-addresses= remote-addresses= mobike ...`; items: the description |
+| `/vpn/ipsec/local`, `remote`, `child` | `print show add set remove enable disable` | authentication rounds `connection= round= auth= id= certs= pubkeys=`; children (CHILD SAs) `connection= mode= local-ts= remote-ts= esp-proposals= start-action=` |
+| `/vpn/ipsec/pool`, `vti`, `manual-spd` | `print show add set remove enable disable` | address pools `name= network= dns=`, VTIs `reqid= local= remote= tunnel-local= tunnel-remote=` (device ipsec&lt;reqid&gt;), manual SPD entries |
+| `/vpn/ipsec/pre-shared-key`, `key-pair` | `print show add set remove` (`generate export`) | `local-id= remote-id= type=PSK\|EAP key=`; key pairs `name= type=rsa\|ecdsa`, `export` the public key; secrets are never shown |
+| `/vpn/ipsec/settings` | `print set` | Mobile & Advanced settings (charon options, log levels, RADIUS, ...) |
+| `/vpn/ipsec/service` | `status enable disable start stop restart reconfigure apply` | `enable` + `reconfigure` switches IPsec on; stop and restart ask for confirmation |
+| `/vpn/ipsec/session`, `sad`, `spd`, `lease` | `print show phase2 connect disconnect`, `print remove`, `print pools` | phase 1/2 sessions, kernel SAD/SPD, pool leases; disconnect and remove ask for confirmation |
+| `/vpn/wireguard/instance` | `print show add set remove enable disable` | `name= port= tunnel-address= peers= mtu= dns= disable-routes gateway= disabled`; the key pair is generated unless `private-key=`, private keys are never shown |
+| `/vpn/wireguard/peer` | `print show add set remove enable disable generate config` | `name= public-key= psk= generate-psk tunnel-address= endpoint-address= endpoint-port= keepalive= instances=`; `generate` creates a peer with a new key pair and writes its client .conf |
+| `/vpn/wireguard/settings`, `status`, `service` | `print set`, `print`, `status start stop restart reconfigure` | the global enable switch; `wg show` with handshakes and transfer (`follow`) |
+| `/captive-portal/zone` | `print show add set remove enable disable` | `description= interfaces= auth-servers= idle-timeout= hard-timeout= concurrent-logins roaming certificate=`; zones are added disabled, `enable` asks for confirmation |
+| `/captive-portal/template` | `print show set remove upload download download-default` | login page templates as zip files |
+| `/captive-portal/session`, `voucher` | `print disconnect`, `providers groups print generate expire drop-expired drop-group` | logged in clients (`zone= follow`); vouchers: `generate` writes a CSV |
+| `/captive-portal/service` | `status start stop restart reconfigure` | |
+| `/ids/settings`, `/ids/service` | `print set`, `status start stop restart reconfigure reload-rules` | Suricata: `enabled mode=pcap\|netmap\|divert interfaces= home-networks= ...`; start, restart and reconfigure ask for confirmation |
+| `/ids/ruleset` | `print show enable disable update` | rule sets to download, `update` downloads; `/ids/ruleset/property` holds their properties |
+| `/ids/rule` | `print show set enable disable reset` | installed rules by sid (no `#`): `print search= limit= page=`, `set <sid> action=alert\|drop` |
+| `/ids/policy`, `/ids/user-rule` | `print show add set remove enable disable` | policies `description= priority= rulesets= match-action= new-action=`; user rules `source= destination= fingerprint= action=`; `/ids/policy/adjustment` lists rule adjustments |
+| `/ids/alert` | `print show` | `print log= follow`, `/ids/alert/log` lists and removes the alert log files |
+| `/monit/service`, `/monit/test`, `/monit/alert` | `print show add set remove` (`enable disable`) | monitored services `name= type= pidfile= match= path= address= tests=`, tests `name= condition= action=`, alert recipients `recipient= events= format=` |
+| `/monit/settings`, `/monit/status`, `/monit/service-control` | `print set`, `print`, `status start stop restart reconfigure` | general settings (passwords hidden), the status report, the daemon |
 | `/interface` | `print monitor-traffic` | `print`: counters since boot; `monitor-traffic interface= interval= once` |
+| `/interface/vlan` | `print show add set remove apply` | `parent= tag= pcp= proto=auto\|802.1q\|802.1ad name= description=`; items: the device name (vlan01) or description |
+| `/interface/lagg`, `bridge` | `print show add set remove apply` | lagg `members= protocol= lacp-fast-timeout hash= mtu=`, bridge `members= stp protocol=rstp\|stp span= ...`; apply asks for confirmation |
+| `/interface/gif`, `gre`, `vxlan`, `loopback` | `print show add set remove apply` | tunnels `local-address= remote-address= tunnel-local-address= tunnel-remote-address=`, vxlan `vni= remote-address= group= interface=`, loopback `description=` |
+| `/interface/vip` | `print show add set remove apply` | virtual IPs: `interface= mode=ipalias\|carp\|proxyarp address= vhid= password= adv-base= adv-skew=`; the CARP password is never shown. `/interface/vip-status` shows CARP status and toggles maintenance mode (asks for confirmation) |
+| `/interface/neighbor` | `print show add set remove apply` | static ARP/NDP entries: `address= mac-address= description=` |
+| `/interface/settings` | `print set apply` | offloading, VLAN hardware filter, IPv6 and DHCPv6 settings; apply reconfigures all interfaces and asks for confirmation |
+| `/interface/overview`, `assignment` | `print show reload`, `print` | state and statistics of every device, reload (asks for confirmation); assignments are read only |
+| `/interface/arp`, `ndp`, `netstat` | `print flush`, `print`, `interfaces sockets protocols bpf memory netisr` | ARP (`flush` asks for confirmation) and NDP tables, netstat |
+| `/interface/host-discovery` | `print status start stop restart reconfigure` | hosts found by hostwatch, `/interface/host-discovery/settings` |
 | `/tool` | `torch` | top talkers: `interface= lines= interval= once` |
-| `/` | `import` | `import file` |
+| `/tool` | `ping traceroute port-probe dns-lookup` | `ping <address> count= size= source=`, `traceroute <address> protocol=udp\|icmp`, `port-probe <address> port=`, `dns-lookup <name> server=` |
+| `/tool/sniffer` | `print start stop view download remove` | packet capture: `start interface= host= port= protocol= count= duration=`, `download <capture> file= overwrite` (pcap files in a zip) |
+| `/tool/netflow` | `print set status reconfigure reset-data` | NetFlow: `interfaces= egress-only= version= targets= collect`; `/tool/netflow/cache print` |
+| `/tool/insight` | `print history export` | NetFlow data: `print by=interface\|protocol\|service\|talker\|flow from= to= measure= limit=`, `history`, CSV `export` |
+| `/` | `import check` | `import file`; `check` tests the API connection (see below) |
 
 `help` and `exit` work in every menu. `opn <menu> ?` and `opn <menu> <command> ?` list everything with its help.
 
@@ -168,6 +267,17 @@ Changes are only saved to the configuration. Apply them like in the web UI:
 | filter rules, NAT | `/firewall/rule apply` or `/firewall/nat/<kind> apply` (both reload the whole ruleset, see below) |
 | aliases, interface groups | `/firewall/alias apply`, `/firewall/group apply` |
 | shaper | `/firewall/shaper reconfigure` |
+| Unbound settings, ACLs, forwards | `/unbound/service reconfigure general` (blocklists: `/unbound/blocklist update`) |
+| Dnsmasq settings, DHCP ranges, options, tags, boot | `/dnsmasq/service reconfigure` |
+| Kea, router advertisements, DHCP relay | `/kea/service reconfigure`, `/radvd/service reconfigure`, `/dhcrelay/service reconfigure` |
+| interface devices, virtual IPs, neighbors, settings | `apply` in the menu, e.g. `/interface/vlan apply` |
+| IPsec | `/vpn/ipsec/service reconfigure` (`enable` first to switch IPsec on) |
+| WireGuard | `/vpn/wireguard/service reconfigure` |
+| captive portal | `/captive-portal/service reconfigure` |
+| IDS rule sets, rules, policies, user rules / settings | `/ids/service reload-rules` / `/ids/service reconfigure` |
+| Monit | `/monit/service-control reconfigure` |
+| NetFlow, health settings | `/tool/netflow reconfigure`, `/system/health/settings reconfigure` |
+| HA settings | `/system/ha apply` |
 
 ```
 opn /unbound host-override add host=foo domain=bar.tld ip=10.10.10.1    # not resolvable yet
@@ -180,7 +290,12 @@ opn /unbound service reconfigure                                        # now it
 `/log clear`, `/system/route/status remove`, `/system/trust/certificate reissue`, `/system/trust/revocation remove`,
 `/vpn/openvpn/instance stop|restart`, `/vpn/openvpn/session remove`, `/firewall/rule apply|revert|import`, the NAT
 `apply` and `import`, `/firewall/alias/table flush`, `/firewall/state remove|kill|flush|flush-sources`,
-`/firewall/shaper flush-reload` and `/firewall/migration flush` ask `[y/N]` in the shell. In one-shot calls and
+`/firewall/shaper flush-reload`, `/firewall/migration flush`, removing users, groups and API keys, firmware
+update / upgrade and package changes, `/system/ha sync`, `/system/snapshot activate`, the stop / restart of most
+services, `/interface/lagg|bridge|settings apply`, `/interface/overview reload`, `/interface/arp flush`, the
+CARP commands of `/interface/vip-status`, IPsec session disconnect and SAD/SPD remove, captive portal zone
+enable, session disconnect and voucher expire / drop, IDS start / restart / reconfigure and the `reset-data` of
+health and NetFlow ask `[y/N]` in the shell. In one-shot calls and
 scripts there is nobody to ask: they refuse to run unless `confirm=yes` is given.
 
     opn /system reboot confirm=yes wait timeout=10m    # wait polls until the firewall is back up
@@ -325,8 +440,9 @@ sourced by your shell) and `~/.vscopnsense-env` (`OPN_APIKEY` / `OPN_APISECRET`)
     make test
     make vet
 
-    # integration tests of the library and the opn binary against a live OPNsense (integration/, integration/system/),
-    # they only touch records they created and never run dangerous commands (reboot, reset, revert, log clear).
+    # integration tests of the library and the opn binary against a live OPNsense (one package per area below
+    # integration/), they only touch records they created (with a random run prefix, swept at the end), create
+    # them disabled where possible and never run dangerous commands (reboot, reset, revert, apply, firmware ...).
     # Uses OPN_URL / OPN_APIKEY / OPN_APISECRET, or the devcontainer keys with https://opnsense-dev, and they are
     # skipped when there are no credentials or the instance is unreachable
     make integration
