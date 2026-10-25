@@ -1,0 +1,179 @@
+###
+### System requests. Only the read-only requests are active, the mutating ones are commented out examples.
+###
+
+###
+### Cron: search jobs
+###
+GET {{baseUrl}}/api/cron/settings/search_jobs
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Cron: get a job (without uuid you get the defaults and the available commands)
+###
+GET {{baseUrl}}/api/cron/settings/get_job
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+# Cron mutations (body root "job"), apply with POST /api/cron/service/reconfigure
+#
+# POST {{baseUrl}}/api/cron/settings/add_job
+# Content-Type: application/json
+#
+# {"job":{"enabled":"1","minutes":"0","hours":"5","days":"*","months":"*","weekdays":"*","who":"root",
+#  "command":"firmware changelog cron","parameters":"","description":"created by opn"}}
+#
+# POST {{baseUrl}}/api/cron/settings/set_job/<uuid>          {"job":{"hours":"6"}}
+# POST {{baseUrl}}/api/cron/settings/toggle_job/<uuid>/0     (0 disables, 1 enables)
+# POST {{baseUrl}}/api/cron/settings/del_job/<uuid>
+# POST {{baseUrl}}/api/cron/service/reconfigure
+
+###
+### Tunables: search
+###
+GET {{baseUrl}}/api/core/tunables/search_item?searchPhrase=kern.ipc
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Tunables: get one (without uuid you get the empty template)
+###
+GET {{baseUrl}}/api/core/tunables/get_item
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+# Tunable mutations (body root "sysctl"), apply with POST /api/core/tunables/reconfigure
+#
+# POST {{baseUrl}}/api/core/tunables/add_item
+# Content-Type: application/json
+#
+# {"sysctl":{"tunable":"kern.ipc.maxsockbuf","value":"16777216","descr":"created by opn"}}
+#
+# POST {{baseUrl}}/api/core/tunables/set_item/<uuid>        {"sysctl":{"value":"8388608"}}
+# POST {{baseUrl}}/api/core/tunables/del_item/<uuid>
+# POST {{baseUrl}}/api/core/tunables/reconfigure
+
+###
+### Logging: general settings (and all destinations)
+###
+GET {{baseUrl}}/api/syslog/settings/get
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Logging: search remote destinations
+###
+GET {{baseUrl}}/api/syslog/settings/search_destinations
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Logging: get a destination (without uuid you get the defaults / available options)
+###
+GET {{baseUrl}}/api/syslog/settings/get_destination
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Logging: service status
+###
+GET {{baseUrl}}/api/syslog/service/status
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Logging: syslog-ng statistics
+###
+GET {{baseUrl}}/api/syslog/service/stats
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+# Logging mutations, apply with POST /api/syslog/service/reconfigure
+#
+# POST {{baseUrl}}/api/syslog/settings/set                   {"syslog":{"general":{"maxpreserve":"14"}}}
+# POST {{baseUrl}}/api/syslog/settings/add_destination
+# Content-Type: application/json
+#
+# {"destination":{"enabled":"1","transport":"udp4","hostname":"10.0.0.5","port":"514",
+#  "program":"filterlog,unbound","level":"info,err","facility":"","rfc5424":"0","description":"created by opn"}}
+#
+# POST {{baseUrl}}/api/syslog/settings/set_destination/<uuid>   {"destination":{"port":"1514"}}
+# POST {{baseUrl}}/api/syslog/settings/toggle_destination/<uuid>/0
+# POST {{baseUrl}}/api/syslog/settings/del_destination/<uuid>
+# POST {{baseUrl}}/api/syslog/service/reconfigure
+
+###
+### Backups: providers ("this" is the local firewall)
+###
+GET {{baseUrl}}/api/core/backup/providers
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Backups: local configuration history, newest first
+###
+GET {{baseUrl}}/api/core/backup/backups/this
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Backups: download the current config.xml (append /<backup id> for a backup from the history)
+###
+GET {{baseUrl}}/api/core/backup/download/this
+Authorization: Basic {{username}} {{password}}
+
+###
+### Backups: diff between two backups (newer id first, then older id)
+###
+GET {{baseUrl}}/api/core/backup/diff/this/config-1792886205.3965.xml/config-1792886043.2147.xml
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+# Backup mutations. WARNING: revert replaces the whole running configuration, including users and API keys
+#
+# POST {{baseUrl}}/api/core/backup/revert_backup/<backup id>
+# POST {{baseUrl}}/api/core/backup/delete_backup/<backup id>
+
+###
+### Setup wizard settings (read-only, contains option lists for language / timezone)
+###
+GET {{baseUrl}}/api/core/initial_setup/get
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+# The wizard can only be applied as a whole: configure re-applies WAN, LAN (incl. its DHCP range),
+# the root password and the deployment type and reloads all services. Not used by opn.
+#
+# POST {{baseUrl}}/api/core/initial_setup/configure          {"wizard":{...complete wizard...}}
+
+###
+### Factory defaults: what the firewall resets to
+###
+GET {{baseUrl}}/api/core/defaults/get
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+###
+### Factory defaults: configuration sections (read-only)
+###
+GET {{baseUrl}}/api/core/defaults/get_installed_sections
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+# WARNING: wipes the WHOLE configuration (including all API keys) and reboots, there is no undo.
+#
+# POST {{baseUrl}}/api/core/defaults/factory_defaults
+
+###
+### System status (read-only, used by "opn power reboot --wait" to detect the firewall is back)
+###
+GET {{baseUrl}}/api/core/system/status
+Authorization: Basic {{username}} {{password}}
+Accept: application/json
+
+# Power menu. WARNING: reboot interrupts routing, VPN and all services, halt powers the firewall off and it
+# does NOT come back without console / physical access.
+#
+# POST {{baseUrl}}/api/core/system/reboot
+# POST {{baseUrl}}/api/core/system/halt
