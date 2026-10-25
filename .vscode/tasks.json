@@ -8,6 +8,20 @@
             "type": "shell",
             "command": "rm -f /home/vscode/.opnsense-env ; rm -f /home/vscode/.vscopnsense-env ; sudo bash ${workspaceFolder}/.devcontainer/wait-for-keys.sh",
             "problemMatcher": []
+        },
+        {
+            "label": "Build opn",
+            "detail": "go build into dist/opn for the devcontainer's platform",
+            "type": "shell",
+            "command": "go build -o ${workspaceFolder}/dist/opn . && echo built ${workspaceFolder}/dist/opn",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$go"
         }
     ]
 }
