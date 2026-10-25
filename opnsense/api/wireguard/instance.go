@@ -66,13 +66,14 @@ func checkInstanceFields(fields InstanceFields) error {
 	return nil
 }
 
-// InstanceListRaw returns the instances where any column contains searchPhrase ("" for all) in API order, with
+// InstanceListRaw returns the instances where any column contains searchPhrase ("" for all, the secret fields are not searched) in API order, with
 // the raw rows (which contain the private keys)
 func (opn *WireguardApi) InstanceListRaw(searchPhrase string) ([]json.RawMessage, []Instance, error) {
-	var rows, err = coreapi.Search[json.RawMessage](opn.OPNsense, opn.endpoint("server", "search_server"), searchPhrase)
+	var rows, err = coreapi.Search[json.RawMessage](opn.OPNsense, opn.endpoint("server", "search_server"), "")
 	if err != nil {
 		return nil, nil, err
 	}
+	rows = searchRows(rows, searchPhrase, InstanceSecretFields)
 	var instances = make([]Instance, len(rows))
 	for i, row := range rows {
 		if err := json.Unmarshal(row, &instances[i]); err != nil {

@@ -177,8 +177,33 @@ func TestInstanceLookups(t *testing.T) {
 	if _, err := api.InstanceGetByName("wg"); !coreapi.IsNotFound(err) {
 		t.Errorf("substring must not match: %v", err)
 	}
-	if got := requests()[len(requests())-1].Query.Get("searchPhrase"); got != "wg" {
-		t.Errorf("searchPhrase %q", got)
+	if got := requests()[len(requests())-1].Query.Get("searchPhrase"); got != "" {
+		t.Errorf("searchPhrase %q sent, the search must stay client side", got)
+	}
+}
+
+func TestSearchSkipsSecrets(t *testing.T) {
+	var api, requests = testApi(t, map[string]any{
+		"GET " + testServerSearch: testRows(testInstanceRow(nil)),
+		"GET " + testClientSearch: testRows(testPeerRow(map[string]any{"psk": "c2VjcmV0cHNr"})),
+	})
+	// a part of the private key / pre-shared key must not find anything, other columns are found case-insensitively
+	if instances, err := api.InstanceList(testPrivateKey[3:12]); err != nil || len(instances) != 0 {
+		t.Errorf("search over the private key found %d instances (%v)", len(instances), err)
+	}
+	if instances, err := api.InstanceList("OFFICE"); err != nil || len(instances) != 1 {
+		t.Errorf("search by name found %d instances (%v)", len(instances), err)
+	}
+	if peers, err := api.PeerList("ZWNyZXRwc2"); err != nil || len(peers) != 0 {
+		t.Errorf("search over the psk found %d peers (%v)", len(peers), err)
+	}
+	if peers, err := api.PeerList("10.9.0.2"); err != nil || len(peers) != 1 {
+		t.Errorf("search by address found %d peers (%v)", len(peers), err)
+	}
+	for _, request := range requests() {
+		if phrase := request.Query.Get("searchPhrase"); phrase != "" {
+			t.Errorf("searchPhrase %q sent to %s", phrase, request.Path)
+		}
 	}
 }
 

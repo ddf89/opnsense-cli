@@ -68,13 +68,14 @@ func (p Peer) InstanceUuids() []string {
 	return uuids
 }
 
-// PeerListRaw returns the peers where any column contains searchPhrase ("" for all) in API order, with the raw
+// PeerListRaw returns the peers where any column contains searchPhrase ("" for all, the secret fields are not searched) in API order, with the raw
 // rows (which contain the pre-shared keys)
 func (opn *WireguardApi) PeerListRaw(searchPhrase string) ([]json.RawMessage, []Peer, error) {
-	var rows, err = coreapi.Search[json.RawMessage](opn.OPNsense, opn.endpoint("client", "search_client"), searchPhrase)
+	var rows, err = coreapi.Search[json.RawMessage](opn.OPNsense, opn.endpoint("client", "search_client"), "")
 	if err != nil {
 		return nil, nil, err
 	}
+	rows = searchRows(rows, searchPhrase, PeerSecretFields)
 	var peers = make([]Peer, len(rows))
 	for i, row := range rows {
 		if err := json.Unmarshal(row, &peers[i]); err != nil {
