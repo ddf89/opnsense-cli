@@ -31,7 +31,7 @@ test:
 vet:
 	go vet ./...
 
-# runs integration/ and integration/system/ against a live OPNsense (the devcontainer's opnsense-dev)
+# runs every package below integration/ against a live OPNsense (OPN_URL, or the devcontainer's opnsense-dev)
 # -p 1: the packages share one live box, run them one after the other
 integration:
 	go test -tags integration -p 1 ./integration/... -count=1 -v
