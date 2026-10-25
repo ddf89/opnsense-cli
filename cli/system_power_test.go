@@ -187,11 +187,11 @@ func systemPowerAskSession(t *testing.T) (*Session, *[]string) {
 func TestSystemPowerCheckAsksNothing(t *testing.T) {
 	t.Parallel()
 	for line, want := range map[string]string{
-		"/system reboot timeout=1m":               "only used together with wait",
-		"/system reboot wait=no poll-interval=1s": "only used together with wait",
-		"/system/backup revert current":           "revert: item must be a backup",
-		"/system/backup remove item=CURRENT":      "remove: item must be a backup",
-		"/system/backup download force file=-":    "download: force has no effect",
+		"/system reboot timeout=1m":                "only used together with wait",
+		"/system reboot wait=no poll-interval=1s":  "only used together with wait",
+		"/system/backup revert current":            "revert: item must be a backup",
+		"/system/backup remove item=CURRENT":       "remove: item must be a backup",
+		"/system/backup download overwrite file=-": "download: overwrite has no effect",
 	} {
 		var session, asked = systemPowerAskSession(t)
 		var err = session.ExecuteLine(line)

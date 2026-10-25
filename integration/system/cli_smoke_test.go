@@ -228,7 +228,10 @@ func TestCliBackup(t *testing.T) {
 		}
 		var exists = runOpnIn(t, dir, "/system/backup", "download", backups[1].Id, "file=cfg.xml")
 		if exists.exitCode != 1 {
-			t.Errorf("download over an existing file without force: want exit code 1:\n%s", exists)
+			t.Errorf("download over an existing file without overwrite: want exit code 1:\n%s", exists)
+		}
+		if replaced := runOpnIn(t, dir, "/system/backup", "download", backups[1].Id, "file=cfg.xml", "overwrite"); replaced.exitCode != 0 {
+			t.Errorf("download with overwrite: want exit code 0:\n%s", replaced)
 		}
 
 		var current = runOpnIn(t, dir, "/system/backup", "download")
