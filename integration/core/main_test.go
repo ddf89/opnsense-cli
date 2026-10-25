@@ -13,9 +13,9 @@
 //
 // Every test is skipped when there are no credentials or the instance is unreachable.
 //
-// Safety (the instance is shared): these tests only read, with three exceptions that change nothing: a firmware
-// check (downloads the catalogue, like the web UI's check), a security audit, and "stop" of a service that is not
-// running (a no-op). Services are never started, stopped or restarted for real; no firmware update, upgrade,
+// Safety (the instance is shared): these tests only read, with two exceptions that change nothing: a security
+// audit and "stop" of a service that is not running (a no-op). A firmware check is never run: it can upgrade pkg
+// itself. Services are never started, stopped or restarted for real; no firmware update, upgrade,
 // install, remove, reinstall, lock or unlock; firmware and HA settings are never saved; no HA sync or remote
 // service action; no snapshot is created, changed, removed or activated. TestMain checks at the end that the
 // running services are the same as before.

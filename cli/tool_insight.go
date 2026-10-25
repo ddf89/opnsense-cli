@@ -303,7 +303,7 @@ func toolInsightPrint(c *Context, args *Args) error {
 	}
 
 	var measure = "octets"
-	if args.String("measure") == "packets" {
+	if strings.EqualFold(args.String("measure"), "packets") {
 		measure = "packets"
 	}
 	var query = diagnostics.InsightTopQuery{Provider: view.provider, From: from, To: to, Fields: view.fields, Measure: measure,
@@ -477,7 +477,7 @@ func toolInsightHistory(c *Context, args *Args) error {
 		selected[device] = true
 	}
 
-	var measure = map[string]string{"bps": "bps", "pps": "packets_ps", "bytes": "octets", "packets": "packets"}[args.String("measure")]
+	var measure = map[string]string{"bps": "bps", "pps": "packets_ps", "bytes": "octets", "packets": "packets"}[strings.ToLower(args.String("measure"))]
 	var series, seriesErr = api.InsightTimeseries(diagnostics.InsightInterfaceTotals, measure, from, to, resolution, []string{"if", "direction"})
 	if seriesErr != nil {
 		return seriesErr
@@ -535,7 +535,7 @@ func toolInsightHistory(c *Context, args *Args) error {
 		if math.IsNaN(value) {
 			return ""
 		}
-		switch args.String("measure") {
+		switch strings.ToLower(args.String("measure")) {
 		case "bps":
 			return ifaceBits(value)
 		case "pps":

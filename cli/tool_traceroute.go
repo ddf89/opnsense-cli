@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strings"
+
 	"opnsense-cli/opnsense/api/diagnostics"
 )
 
@@ -37,7 +39,7 @@ func toolTracerouteRun(c *Context, args *Args) error {
 	var options = diagnostics.TracerouteOptions{
 		Hostname:      args.String("address"),
 		Family:        toolDiagInet(toolDiagFamily(args)),
-		Protocol:      args.String("protocol"),
+		Protocol:      strings.ToLower(args.String("protocol")),
 		SourceAddress: args.String("source"),
 	}
 	result, err := systemActivityAwait(c, func() (diagnostics.TracerouteResult, error) { return api.Traceroute(options) })

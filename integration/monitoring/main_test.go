@@ -167,8 +167,8 @@ func buildOpn(dir string) (string, error) {
 // settingsSnapshot are the settings the tests may change
 type settingsSnapshot struct {
 	Interfaces, EgressOnly, Version, Targets string // comma separated selected keys
-	Collect, ActiveTimeout, InactiveTimeout     string
-	HealthEnabled                               string
+	Collect, ActiveTimeout, InactiveTimeout  string
+	HealthEnabled                            string
 }
 
 type rawOption struct {
