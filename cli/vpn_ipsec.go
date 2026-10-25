@@ -548,15 +548,16 @@ func vpnIpsecRegister(items *vpnIpsecItems) *Menu {
 	return menu
 }
 
-// vpnIpsecSearch keeps the records where any value contains phrase (case-insensitive), like OPNsense's searchPhrase
-func vpnIpsecSearch(records []ipsec.Record, phrase string) []ipsec.Record {
+// vpnIpsecSearch keeps the records where any value contains phrase (case-insensitive), like OPNsense's searchPhrase.
+// The secret fields are not searched, a search must not tell what a key contains
+func vpnIpsecSearch(records []ipsec.Record, phrase string, secrets ...string) []ipsec.Record {
 	if phrase == "" {
 		return records
 	}
 	phrase = strings.ToLower(phrase)
 	return coreapi.Filter(records, func(record ipsec.Record) bool {
-		for _, value := range record.Values() {
-			if strings.Contains(strings.ToLower(value), phrase) {
+		for name, value := range record.Values() {
+			if !slices.Contains(secrets, name) && strings.Contains(strings.ToLower(value), phrase) {
 				return true
 			}
 		}
@@ -571,7 +572,8 @@ func vpnIpsecMaskedRow(record ipsec.Record, secrets []string) (map[string]any, e
 		return nil, err
 	}
 	for _, field := range secrets {
-		if value, isString := object[field].(string); isString && value != "" {
+		// strings, but also lists (the key groups of SAD rows)
+		if value, found := object[field]; found && value != nil && value != "" {
 			object[field] = vpnIpsecMasked
 		}
 	}
@@ -630,7 +632,7 @@ func (items *vpnIpsecItems) print(c *Context, args *Args) error {
 	if listErr != nil {
 		return listErr
 	}
-	records = vpnIpsecSearch(records, args.String("search"))
+	records = vpnIpsecSearch(records, args.String("search"), items.secrets...)
 	if items.filter != nil {
 		if records, err = items.filter(api, args, records); err != nil {
 			return err
@@ -698,7 +700,7 @@ func (items *vpnIpsecItems) error(err error) error {
 	return vpnIpsecValidationArgs(err, items.prefix, items.fields(false))
 }
 
-// writable returns the defaults of a new item restricted to the writable fields
+// defaults returns the defaults of a new item restricted to the writable fields
 func (items *vpnIpsecItems) defaults(api *ipsec.IPsecApi) (map[string]string, error) {
 	var form, err = items.form(api)
 	if err != nil {

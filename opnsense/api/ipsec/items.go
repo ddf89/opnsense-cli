@@ -28,8 +28,9 @@ var (
 	// privateKey in PEM; keySize and keyFingerprint are computed by OPNsense
 	KeyPairFieldNames = []string{"name", "keyType", "publicKey", "privateKey"}
 
-	// SecretFields are the fields of search rows holding secrets, by resource ("pre-shared-key", "key-pair")
-	SecretFields = map[string][]string{"pre-shared-key": {"Key"}, "key-pair": {"privateKey"}}
+	// SecretFields are the fields of rows holding secrets, by resource: "pre-shared-key", "key-pair" and "sad" (the
+	// encryption and authentication keys of the kernel's security associations, setkey -D prints them)
+	SecretFields = map[string][]string{"pre-shared-key": {"Key"}, "key-pair": {"privateKey"}, "sad": {"m_enc", "m_auth"}}
 
 	// KeyPairSizes are the key sizes key_pairs/gen_key_pair accepts per type, the first is the default
 	KeyPairSizes = map[string][]string{"rsa": {"2048", "1024", "3072", "4096", "8192"}, "ecdsa": {"384", "256", "521"}}
