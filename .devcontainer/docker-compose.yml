@@ -1,5 +1,7 @@
 volumes:
   apikeys:
+  apikeys2:
+  apikeys3:
     
 services:
   opnsense-cli-dev:
@@ -12,6 +14,8 @@ services:
     volumes:
       - ../:/workspace/opnsense-cli
       - apikeys:/keys:rw
+      - apikeys2:/keys2:rw
+      - apikeys4:/keys3:rw
 
   opnsense-dev:
     image: ghcr.io/ddf89/docker-opnsense:26.7
@@ -26,7 +30,43 @@ services:
     volumes:
       - apikeys:/root/keys:rw
     ports:
-      - "8180:80"
+      - "18180:80"
       - "10443:443"
-      - "2122:22"
-      - "5153:53"
+      - "12122:22"
+      - "15153:53"
+
+  opnsense-dev2:
+    image: ghcr.io/ddf89/docker-opnsense:26.7
+    devices:
+      - /dev/kvm
+    # device_cgroup_rules:
+    #   - 'c 10:232 rwm'
+    cap_add:
+      - NET_ADMIN
+    stop_grace_period: 3m
+    container_name: opnsense-dev2
+    volumes:
+      - apikeys2:/root/keys:rw
+    ports:
+      - "28180:80"
+      - "20443:443"
+      - "22122:22"
+      - "25153:53"
+
+  opnsense-dev3:
+    image: ghcr.io/ddf89/docker-opnsense:26.7
+    devices:
+      - /dev/kvm
+    # device_cgroup_rules:
+    #   - 'c 10:232 rwm'
+    cap_add:
+      - NET_ADMIN
+    stop_grace_period: 3m
+    container_name: opnsense-dev3
+    volumes:
+      - apikeys3:/root/keys:rw
+    ports:
+      - "38180:80"
+      - "30443:443"
+      - "32122:22"
+      - "35153:53"

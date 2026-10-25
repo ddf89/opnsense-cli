@@ -4,3 +4,4 @@ vendor
 dist/
 http/*.private.env.json
 .vscode/.env
+.claude
