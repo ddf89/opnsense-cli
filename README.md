@@ -90,8 +90,35 @@ the same:
 | `/system` | `reboot shutdown` | `reboot wait timeout= poll-interval=` |
 | `/system/resource` | `print monitor` | versions, uptime, memory, disks, ...; `monitor` streams the CPU usage, `once` |
 | `/system/activity` | `print` | top: `lines= follow interval=` |
+| `/system/gateway` | `print show add set remove enable disable apply monitor` | `name= interface= protocol=ipv4\|ipv6 address= priority= weight= upstream far-gateway monitor= monitor-disabled latency-low= latency-high= loss-low= loss-high= description= disabled`; items: the gateway name; dynamic gateways (`WAN_DHCP`) are changed by storing an override |
+| `/system/gateway/group` | `print show add set remove apply` | `name= tier1=..tier5= trigger=member-down\|packet-loss\|high-latency\|packet-loss-or-latency pool=default\|round-robin\|round-robin-sticky description=`; items: the group name |
+| `/system/route` | `print show add set remove enable disable apply` | `network= gateway= description= disabled`; items: the network |
+| `/system/route/status` | `print remove` | the kernel routing table: `print protocol= interface= resolve follow`, `remove` (refuses default routes without `allow-default`) |
+| `/system/trust/authority` | `print show add set remove dump export` | `add method=internal\|intermediate\|import common-name= key-type= digest= lifetime= issuer= certificate-file= key-file=`, `export type=cert\|key file= overwrite`; items: the description or refid |
+| `/system/trust/certificate` | `print show add set remove reissue import-signed dump export` | `add method=internal\|self-signed\|csr\|import\|sign-csr issuer= type=server\|client\|combined\|ca common-name= alt-dns= alt-ip= ...`, `print expiring=30`, `export type=cert\|key\|csr\|pkcs12 password= file= overwrite` |
+| `/system/trust/revocation` | `print show add set remove revoke unrevoke dump export` | one list per CA: `revoke <ca> certificate= reason=`, `add method=internal\|import crl-file= lifetime=` |
+| `/system/trust/settings` | `print set apply` | `store-intermediate-certs install-crls fetch-crls min-protocol= cipher-string= ...`, `print options=<field>` |
 | `/log` | `print files clear` | `print [log=]system lines= follow search= severity=`; logs: a scope like `system`, `configd`, `dnsmasq` or `<module>/<scope>`, see `files` |
 | `/firewall/log` | `print filters stats` | `print lines= follow stream interval= action= interface= dir= proto= src= dst= port= search= scan=`, `stats by= scan=` |
+| `/firewall/rule` | `print show add set remove enable disable move apply confirm-apply revert export import` | `action=pass\|block\|reject interface= direction= ip-protocol= protocol= source= destination= source-port= destination-port= log quick categories= gateway= description= disabled` (`!` inverts an address) and the advanced pf options; `add place-before=`, `print interface= stats`; items: the description. Automatic rules are shown, never changed |
+| `/firewall/nat/source`, `destination`, `one-to-one`, `npt` | `print show add set remove enable disable move apply export import` | source: `interface= source= destination= target= target-port= no-nat static-port`; destination (port forward): `interface= protocol= destination= destination-port= target= target-port= nat-reflection= filter-rule=`; one-to-one: `type=binat\|nat external= source=`; npt: `internal-prefix= external-prefix= track-interface=` |
+| `/firewall/nat/source/mode` | `print set` | `set mode=automatic\|hybrid\|manual\|disabled` |
+| `/firewall/alias` | `print show add set remove enable disable apply export import categories countries` | `name= type=host\|network\|port\|url\|urltable\|geoip\|networkgroup\|mac\|asn\|dynipv6host\|authgroup\|external content= categories= updatefreq= description= disabled`; items: the alias name. Built-in aliases are read-only |
+| `/firewall/alias/table` | `print add remove flush find update-bogons` | the live pf tables: `print [alias]`, `add <alias> address=`, `find <address>` |
+| `/firewall/group` | `print show add set remove apply` | interface groups: `name= members= sequence= no-group description=` |
+| `/firewall/category` | `print show add set remove` | `name= color=` |
+| `/firewall/shaper/pipe`, `queue`, `rule` | `print show add set remove enable disable` | pipe: `bandwidth=100Mbit scheduler= mask= delay= codel pie description=`; queue: `pipe= weight=`; rule: `interface= protocol= source= destination= direction= target=<pipe or queue>` |
+| `/firewall/shaper` | `status reconfigure flush-reload` | `status detail follow` (`apply` is an alias of `reconfigure`) |
+| `/firewall/state` | `print remove kill flush flush-sources rule-ids` | `print search= rule= interface= protocol= src= dst= port= sort= limit= follow`, `kill <filters>`, `flush drop-own-connection` |
+| `/firewall/session` | `print` | pftop: `sort= limit= search= follow` |
+| `/firewall/statistics` | `print states` | pf statistics: `print section=info\|memory\|timeouts\|interfaces\|rules` |
+| `/firewall/migration` | `print export flush` | legacy rules left to migrate: `export type=filter\|outbound file=` |
+| `/vpn/openvpn/instance` | `print show add set remove enable disable start stop restart apply` | `role=server\|client description= protocol= port= dev-type= topology= tunnel-network= local-networks= remote-networks= ca= cert= tls-key= authentication= ...`; items: the description. Passwords are masked |
+| `/vpn/openvpn/static-key` | `print show add set remove` | `description= mode=auth\|crypt\|crypt-v2` (generated unless `key=` / `key-file=`), `set regenerate` |
+| `/vpn/openvpn/client-override` | `print show add set remove enable disable` | `common-name= servers= tunnel-network= local-networks= remote-networks= redirect-gateway= dns-servers= block description= disabled`; items: the common name |
+| `/vpn/openvpn/session` | `print remove` | connected clients: `print type=server\|client follow`, `remove` (alias `kill`) disconnects |
+| `/vpn/openvpn/route` | `print` | |
+| `/vpn/openvpn/export` | `print show accounts templates set download` | `download <server> account= template= hostname= port= file= overwrite p12-password=` (only enabled servers can be exported) |
 | `/interface` | `print monitor-traffic` | `print`: counters since boot; `monitor-traffic interface= interval= once` |
 | `/tool` | `torch` | top talkers: `interface= lines= interval= once` |
 | `/` | `import` | `import file` |
@@ -134,6 +161,13 @@ Changes are only saved to the configuration. Apply them like in the web UI:
 | cron jobs | `/system/cron apply` |
 | tunables | `/system/tunable apply` |
 | logging settings, destinations | `/system/logging/service reconfigure` |
+| gateways, gateway groups | `/system/gateway apply`, `/system/gateway/group apply` |
+| static routes | `/system/route apply` |
+| trust settings | `/system/trust/settings apply` (CAs, certificates and CRLs apply immediately) |
+| OpenVPN instances, static keys | `/vpn/openvpn/instance apply` (client overrides apply on the next connect) |
+| filter rules, NAT | `/firewall/rule apply` or `/firewall/nat/<kind> apply` (both reload the whole ruleset, see below) |
+| aliases, interface groups | `/firewall/alias apply`, `/firewall/group apply` |
+| shaper | `/firewall/shaper reconfigure` |
 
 ```
 opn /unbound host-override add host=foo domain=bar.tld ip=10.10.10.1    # not resolvable yet
@@ -142,11 +176,19 @@ opn /unbound service reconfigure                                        # now it
 
 ### Dangerous commands
 
-`/system reboot`, `/system shutdown`, `/system/defaults reset`, `/system/backup revert`, `/system/backup remove` and
-`/log clear` ask `[y/N]` in the shell. In one-shot calls and scripts there is nobody to ask: they refuse to run
-unless `confirm=yes` is given.
+`/system reboot`, `/system shutdown`, `/system/defaults reset`, `/system/backup revert`, `/system/backup remove`,
+`/log clear`, `/system/route/status remove`, `/system/trust/certificate reissue`, `/system/trust/revocation remove`,
+`/vpn/openvpn/instance stop|restart`, `/vpn/openvpn/session remove`, `/firewall/rule apply|revert|import`, the NAT
+`apply` and `import`, `/firewall/alias/table flush`, `/firewall/state remove|kill|flush|flush-sources`,
+`/firewall/shaper flush-reload` and `/firewall/migration flush` ask `[y/N]` in the shell. In one-shot calls and
+scripts there is nobody to ask: they refuse to run unless `confirm=yes` is given.
 
     opn /system reboot confirm=yes wait timeout=10m    # wait polls until the firewall is back up
+
+`/firewall/rule apply` uses OPNsense's savepoint with automatic rollback where the firewall offers it (up to 26.1):
+it prints a revision, and unless `/firewall/rule confirm-apply <revision>` follows within 60 seconds the previous
+rules come back. OPNsense 26.7 has no rollback any more, there `apply` (like the NAT `apply`) loads the rules
+directly, so a wrong rule can cut off your access.
 
 ### Output
 
@@ -155,7 +197,8 @@ unless `confirm=yes` is given.
 - `show` prints one item as `name: value` lines
 - data goes to stdout, messages and hints (`replaced the existing host ...`, `already disabled`) to stderr
 - streaming commands (`/log print follow`, `/firewall/log print follow|stream`, `/interface monitor-traffic`,
-  `/system/resource monitor`, `/system/activity print follow`, `/tool torch`) run until Ctrl-C, reconnect dropped
+  `/system/resource monitor`, `/system/activity print follow`, `/tool torch`, `/system/gateway monitor`,
+  `/firewall/state print follow`, `/vpn/openvpn/session print follow`, ...) run until Ctrl-C, reconnect dropped
   streams and exit 0 when stopped. `once` (monitors) prints a single measurement, `json` the raw events
 
     opn /firewall log print follow json action=block | jq .src
