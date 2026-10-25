@@ -680,7 +680,7 @@ func TestDiagCpuActivitySystem(t *testing.T) {
 	})
 }
 
-// --- CLI: opn diag ---
+// --- CLI: /log, /firewall/log, /interface, /tool torch, /system/resource, /system/activity ---
 
 // runningOpn is a CLI process whose stdout lines are collected while it runs
 type runningOpn struct {
@@ -797,49 +797,52 @@ func requireJsonLines(t *testing.T, lines []string) []map[string]any {
 	return objects
 }
 
-func TestCliDiagLog(t *testing.T) {
-	var listed = mustOpn(t, "diag", "log", "list")
-	requireContains(t, listed, listed.stdout, "NAME", "configd", "system", "audit", "dnsmasq")
+func TestCliLog(t *testing.T) {
+	var files = mustOpn(t, "/log", "files")
+	requireContains(t, files, files.stdout, "NAME", "configd", "system", "audit", "dnsmasq")
 
-	t.Run("show", func(t *testing.T) {
-		var shown = mustOpn(t, "diag", "log", "show", "configd", "-n", "3")
-		if lines := nonEmptyLines(shown.stdout); len(lines) == 0 || len(lines) > 3 {
-			t.Errorf("want 1-3 lines:\n%s", shown)
+	t.Run("print", func(t *testing.T) {
+		var printed = mustOpn(t, "/log", "print", "configd", "lines=3")
+		if lines := nonEmptyLines(printed.stdout); len(lines) == 0 || len(lines) > 3 {
+			t.Errorf("want 1-3 lines:\n%s", printed)
 		}
-		shown = mustOpn(t, "diag", "log", "show", "core/configd", "-n", "5", "--json")
-		var records = requireJsonLines(t, nonEmptyLines(shown.stdout))
+		printed = mustOpn(t, "/log", "print", "log=core/configd", "lines=5", "json")
+		var records = requireJsonLines(t, nonEmptyLines(printed.stdout))
 		if len(records) == 0 || len(records) > 5 {
-			t.Errorf("want 1-5 JSON lines:\n%s", shown)
+			t.Errorf("want 1-5 JSON lines:\n%s", printed)
 		}
 		for i, record := range records {
 			if record["timestamp"] == nil || record["line"] == nil {
 				t.Errorf("record lacks timestamp / line: %v", record)
 			}
 			if i > 0 && fmt.Sprint(record["timestamp"]) < fmt.Sprint(records[i-1]["timestamp"]) {
-				t.Errorf("not oldest first:\n%s", shown)
+				t.Errorf("not oldest first:\n%s", printed)
 			}
 		}
+		// the log defaults to system
+		mustOpn(t, "/log", "print", "lines=1")
 	})
 
 	t.Run("filters", func(t *testing.T) {
-		var shown = mustOpn(t, "diag", "log", "show", "audit", "-n", "10", "--severity", "info", "--json")
-		for _, record := range requireJsonLines(t, nonEmptyLines(shown.stdout)) {
+		var printed = mustOpn(t, "/log", "print", "audit", "lines=10", "severity=info", "json")
+		for _, record := range requireJsonLines(t, nonEmptyLines(printed.stdout)) {
 			if record["severity"] != "Informational" {
-				t.Errorf("--severity info returned %v", record)
+				t.Errorf("severity=info returned %v", record)
 			}
 		}
-		shown = mustOpn(t, "diag", "log", "show", "configd", "-n", "10", "--search", "dnsmasq status", "--json")
-		for _, record := range requireJsonLines(t, nonEmptyLines(shown.stdout)) {
+		printed = mustOpn(t, "/log", "print", "configd", "lines=10", "search=dnsmasq status", "json")
+		for _, record := range requireJsonLines(t, nonEmptyLines(printed.stdout)) {
 			if !strings.Contains(strings.ToLower(fmt.Sprint(record["line"])), "dnsmasq status") {
-				t.Errorf("--search returned %v", record)
+				t.Errorf("search= returned %v", record)
 			}
 		}
-		mustFailOpn(t, "diag", "log", "show", "configd", "--severity", "bogus")
+		mustFailOpn(t, "/log", "print", "configd", "severity=bogus")
+		mustFailOpn(t, "/log", "print", "configd", "lines=many")
 	})
 
 	t.Run("follow until SIGINT", func(t *testing.T) {
 		startActivity(t)
-		var running = startOpn(t, "diag", "log", "show", "configd", "-n", "0", "-f", "--json")
+		var running = startOpn(t, "/log", "print", "configd", "lines=0", "follow", "json")
 		var found = running.waitFor(15*time.Second, func(lines []string) bool {
 			return slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "Request Dnsmasq status") })
 		})
@@ -852,39 +855,51 @@ func TestCliDiagLog(t *testing.T) {
 		}
 		requireJsonLines(t, lines)
 	})
+
+	t.Run("clear is refused without confirm", func(t *testing.T) {
+		// never run with confirm=yes: it empties the log for everyone. Without it nothing is sent
+		for _, args := range [][]string{{"/log", "clear", "system"}, {"/log", "clear", "system", "confirm=no"}} {
+			var refused = mustFailOpn(t, args...)
+			requireContains(t, refused, refused.stderr, "confirm=yes")
+		}
+	})
 }
 
-func TestCliDiagFirewall(t *testing.T) {
+func TestCliFirewallLog(t *testing.T) {
 	startActivity(t)
 	time.Sleep(time.Second)
 
-	var filters = mustOpn(t, "diag", "firewall", "filters")
+	var filters = mustOpn(t, "/firewall/log", "filters")
 	requireContains(t, filters, filters.stdout, "pass", "lan")
 
-	var shown = mustOpn(t, "diag", "firewall", "log", "-n", "3", "--json")
-	var entries = requireJsonLines(t, nonEmptyLines(shown.stdout))
+	var printed = mustOpn(t, "/firewall/log", "print", "lines=3", "json")
+	var entries = requireJsonLines(t, nonEmptyLines(printed.stdout))
 	if len(entries) == 0 || len(entries) > 3 {
-		t.Errorf("want 1-3 JSON lines:\n%s", shown)
+		t.Errorf("want 1-3 JSON lines:\n%s", printed)
 	}
 
-	shown = mustOpn(t, "diag", "firewall", "log", "-n", "5", "--action", "pass", "--interface", "lan", "--dir", "in", "--json")
-	var filtered = requireJsonLines(t, nonEmptyLines(shown.stdout))
+	printed = mustOpn(t, "/firewall/log", "print", "lines=5", "action=pass", "interface=lan", "dir=in", "json")
+	var filtered = requireJsonLines(t, nonEmptyLines(printed.stdout))
 	if len(filtered) == 0 {
-		t.Errorf("no pass/in record on lan although the API calls create them:\n%s", shown)
+		t.Errorf("no pass/in record on lan although the API calls create them:\n%s", printed)
 	}
 	for _, entry := range filtered {
 		if entry["action"] != "pass" || entry["dir"] != "in" || entry["interface"] != "vtnet0" {
 			t.Errorf("filter not applied: %v", entry)
 		}
 	}
-	shown = mustOpn(t, "diag", "firewall", "log", "-n", "3")
-	if lines := nonEmptyLines(shown.stdout); len(lines) == 0 || len(lines) > 3 {
-		t.Errorf("want 1-3 lines:\n%s", shown)
+	printed = mustOpn(t, "/firewall/log", "print", "lines=3")
+	if lines := nonEmptyLines(printed.stdout); len(lines) == 0 || len(lines) > 3 {
+		t.Errorf("want 1-3 lines:\n%s", printed)
 	}
+	mustFailOpn(t, "/firewall/log", "print", "dir=sideways")
 
-	for _, mode := range [][]string{{"-f"}, {"--stream"}} {
-		t.Run("follow "+mode[0], func(t *testing.T) {
-			var running = startOpn(t, append([]string{"diag", "firewall", "log", "-n", "0", "--json"}, mode...)...)
+	var stats = mustOpn(t, "/firewall/log", "stats", "by=action", "scan=200")
+	requireContains(t, stats, stats.stdout, "pass")
+
+	for _, mode := range []string{"follow", "stream"} {
+		t.Run(mode, func(t *testing.T) {
+			var running = startOpn(t, "/firewall/log", "print", "lines=0", "json", mode)
 			var printed = running.waitFor(15*time.Second, func(lines []string) bool { return len(lines) >= 2 })
 			var exitCode, lines = running.interrupt(t)
 			if !printed {
@@ -898,11 +913,20 @@ func TestCliDiagFirewall(t *testing.T) {
 	}
 }
 
-func TestCliDiagTraffic(t *testing.T) {
-	var once = mustOpn(t, "diag", "traffic")
+func TestCliInterface(t *testing.T) {
+	var counters = mustOpn(t, "/interface", "print")
+	requireContains(t, counters, counters.stdout, "#", "INTERFACE", "lan")
+	var countersJson = mustOpn(t, "/interface", "print", "json")
+	for _, object := range requireJsonLines(t, nonEmptyLines(countersJson.stdout)) {
+		if object["interface"] == nil {
+			t.Errorf("counters lack interface: %v", object)
+		}
+	}
+
+	var once = mustOpn(t, "/interface", "monitor-traffic", "once")
 	requireContains(t, once, once.stdout, "INTERFACE", "lan")
 
-	var running = startOpn(t, "diag", "traffic", "-f", "--json")
+	var running = startOpn(t, "/interface", "monitor-traffic", "json")
 	var printed = running.waitFor(6*time.Second, func(lines []string) bool { return len(lines) >= 2 })
 	var exitCode, lines = running.interrupt(t)
 	if !printed {
@@ -917,19 +941,33 @@ func TestCliDiagTraffic(t *testing.T) {
 		}
 	}
 
-	var filtered = mustOpn(t, "diag", "traffic", "--interface", "lan")
+	var filtered = mustOpn(t, "/interface", "monitor-traffic", "once", "interface=lan")
 	if strings.Contains(filtered.stdout, "wan") {
-		t.Errorf("--interface lan also shows wan:\n%s", filtered)
+		t.Errorf("interface=lan also shows wan:\n%s", filtered)
 	}
-	var interfaces = mustOpn(t, "diag", "traffic", "interfaces")
-	requireContains(t, interfaces, interfaces.stdout, "lan")
+	mustFailOpn(t, "/interface", "monitor-traffic", "once", "interface=nothere")
 }
 
-func TestCliDiagCpuActivitySystem(t *testing.T) {
-	var cpu = mustOpn(t, "diag", "cpu")
+func TestCliToolTorch(t *testing.T) {
+	var torch = mustOpn(t, "/tool", "torch", "once", "interface=lan", "json")
+	for _, object := range requireJsonLines(t, nonEmptyLines(torch.stdout)) {
+		if len(object) == 0 {
+			t.Errorf("empty torch answer:\n%s", torch)
+		}
+	}
+	// the table needs traffic during the measurement, an idle LAN or a slow iftop answer is reported as such
+	torch = mustOpn(t, "/tool", "torch", "once", "interface=lan", "lines=3")
+	requireContains(t, torch, torch.stdout, "lan")
+	if !strings.Contains(torch.stdout, "ADDRESS") && !strings.Contains(torch.stdout, "no traffic") && !strings.Contains(torch.stdout, "timed out") {
+		t.Errorf("want a talkers table, \"no traffic\" or \"timed out\":\n%s", torch)
+	}
+}
+
+func TestCliSystemResourceActivity(t *testing.T) {
+	var cpu = mustOpn(t, "/system/resource", "monitor", "once")
 	requireContains(t, cpu, cpu.stdout, "total")
 
-	var running = startOpn(t, "diag", "cpu", "-f", "--json")
+	var running = startOpn(t, "/system/resource", "monitor", "json")
 	var printed = running.waitFor(6*time.Second, func(lines []string) bool { return len(lines) >= 2 })
 	var exitCode, lines = running.interrupt(t)
 	if !printed || exitCode != 0 {
@@ -937,14 +975,14 @@ func TestCliDiagCpuActivitySystem(t *testing.T) {
 	}
 	requireJsonLines(t, lines)
 
-	var activity = mustOpn(t, "diag", "activity", "-n", "3")
+	var activity = mustOpn(t, "/system/activity", "print", "lines=3")
 	requireContains(t, activity, activity.stdout, "PID", "COMMAND")
 
-	var system = mustOpn(t, "diag", "system", "--json")
+	var system = mustOpn(t, "/system/resource", "print", "json")
 	var object map[string]any
 	if err := json.Unmarshal([]byte(system.stdout), &object); err != nil || object["information"] == nil || object["memory"] == nil {
 		t.Errorf("want one JSON object with information and memory (%v):\n%s", err, system)
 	}
-	system = mustOpn(t, "diag", "system")
+	system = mustOpn(t, "/system/resource", "print")
 	requireContains(t, system, system.stdout, "OPNsense", "uptime", "memory")
 }

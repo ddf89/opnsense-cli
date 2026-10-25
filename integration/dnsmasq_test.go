@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"strconv"
 	"testing"
 
 	"opnsense-cli/opnsense/api/dnsmasq"
@@ -244,6 +245,16 @@ func TestDnsmasqDomainOverrideLifecycle(t *testing.T) {
 
 	var fooUuid = createDnsmasqDomain(t, dnsmasqApi, dnsmasq.DomainOverride{Domain: fooDomain, Ip: "10.2.2.2", Port: "5353", Description: "a7 integration foo"})
 	var foobarUuid = createDnsmasqDomain(t, dnsmasqApi, dnsmasq.DomainOverride{Domain: foobarDomain, Ip: "fd00::53", Sequence: "7", Description: "a7 integration foobar"})
+	// without a sequence OPNsense assigns the next free number (1 when there are no other domain overrides, but the
+	// instance is shared), so the stored value is what the following checks expect to be kept
+	var fooSequence = "1"
+	if stored, err := dnsmasqApi.DomainOverrideGet(fooUuid); err == nil {
+		if number, convErr := strconv.Atoi(stored.Sequence); convErr != nil || number < 1 {
+			t.Errorf("OPNsense assigned no sequence: %+v", stored)
+		} else {
+			fooSequence = stored.Sequence
+		}
+	}
 
 	t.Run("search returns the stored values", func(t *testing.T) {
 		var overrides, err = dnsmasqApi.DomainOverrideList(domain)
@@ -254,7 +265,7 @@ func TestDnsmasqDomainOverrideLifecycle(t *testing.T) {
 			t.Errorf("want 2 domain overrides in %s, got %+v", domain, overrides)
 		}
 		var want = map[string]dnsmasq.DomainOverride{
-			fooUuid:    {Uuid: fooUuid, Sequence: "1", Domain: fooDomain, Ip: "10.2.2.2", Port: "5353", Description: "a7 integration foo"},
+			fooUuid:    {Uuid: fooUuid, Sequence: fooSequence, Domain: fooDomain, Ip: "10.2.2.2", Port: "5353", Description: "a7 integration foo"},
 			foobarUuid: {Uuid: foobarUuid, Sequence: "7", Domain: foobarDomain, Ip: "fd00::53", Description: "a7 integration foobar"},
 		}
 		for _, override := range overrides {
@@ -301,7 +312,7 @@ func TestDnsmasqDomainOverrideLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("DomainOverrideGet: %v", err)
 		}
-		if foo.Description != "changed" || foo.Ip != "10.2.2.2" || foo.Port != "5353" || foo.Sequence != "1" || foo.Domain != fooDomain {
+		if foo.Description != "changed" || foo.Ip != "10.2.2.2" || foo.Port != "5353" || foo.Sequence != fooSequence || foo.Domain != fooDomain {
 			t.Errorf("set_domain is not a merge: %+v", foo)
 		}
 
@@ -324,7 +335,7 @@ func TestDnsmasqDomainOverrideLifecycle(t *testing.T) {
 			t.Fatalf("want update of %s, got %s created=%v err=%v", fooUuid, uuid, created, err)
 		}
 		var foo, _ = dnsmasqApi.DomainOverrideGet(fooUuid)
-		if foo.Port != "5300" || foo.Description != "updated" || foo.Sequence != "1" {
+		if foo.Port != "5300" || foo.Description != "updated" || foo.Sequence != fooSequence {
 			t.Errorf("create-or-update did not update: %+v", foo)
 		}
 
