@@ -4,7 +4,7 @@ import (
 	"opnsense-cli/opnsense/api/unbound"
 )
 
-// /unbound/service: status, restart and reconfigure of the Unbound DNS resolver
+// /unbound/service: status, start, stop, restart and reconfigure of the Unbound DNS resolver
 
 func init() {
 	Root.Sub("unbound", "Unbound DNS resolver")
@@ -12,8 +12,15 @@ func init() {
 	menu.Help = "the Unbound service"
 	menu.Add(
 		&Command{Name: "status", Help: "show whether Unbound is running", Run: unboundServiceStatus},
+		&Command{Name: "start", Help: "start Unbound", Run: unboundServiceStart},
+		&Command{Name: "stop", Help: "stop Unbound", Confirm: "This stops the DNS resolver of the firewall (and of its clients using it).",
+			Run: unboundServiceStop},
 		&Command{Name: "restart", Help: "restart Unbound", Run: unboundServiceRestart},
-		&Command{Name: "reconfigure", Help: "apply the saved configuration (e.g. changed host overrides) to Unbound", Run: unboundServiceReconfigure},
+		&Command{Name: "reconfigure", Help: "apply the saved configuration (e.g. changed host overrides) to Unbound",
+			Long: `general also reloads the system DNS configuration and restarts the DHCP servers, as the General page does:
+needed after "/unbound/settings set" (enabled, DHCP registration, ...).`,
+			Args: []Arg{{Name: "general", Type: Bool, Help: "also reload the system DNS configuration and restart the DHCP servers"}},
+			Run:  unboundServiceReconfigure},
 	)
 }
 
@@ -47,10 +54,29 @@ func unboundServiceRestart(c *Context, _ *Args) error {
 	return api.ServiceRestart()
 }
 
-func unboundServiceReconfigure(c *Context, _ *Args) error {
+func unboundServiceReconfigure(c *Context, args *Args) error {
 	var api, err = unboundApi(c)
 	if err != nil {
 		return err
 	}
+	if args.Bool("general") {
+		return api.ServiceReconfigureGeneral()
+	}
 	return api.ServiceReconfigure()
+}
+
+func unboundServiceStart(c *Context, _ *Args) error {
+	var api, err = unboundApi(c)
+	if err != nil {
+		return err
+	}
+	return api.ServiceStart()
+}
+
+func unboundServiceStop(c *Context, _ *Args) error {
+	var api, err = unboundApi(c)
+	if err != nil {
+		return err
+	}
+	return api.ServiceStop()
 }

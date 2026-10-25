@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Shared parts of the /dnsmasq menus (host, domain, lease, service)
+// Shared parts of the /dnsmasq menus (host, domain, lease, service, settings, tag, range, option, boot)
 
 func init() {
 	Root.Menu("dnsmasq").Help = "Dnsmasq DNS & DHCP"
