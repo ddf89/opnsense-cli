@@ -24,7 +24,7 @@ func TestMainModes(t *testing.T) {
 	}
 
 	// exit as a one-shot command does nothing and succeeds, like in a script
-	for _, args := range [][]string{{"exit"}, {"/", "quit"}} {
+	for _, args := range [][]string{{"exit"}, {"/system", "quit"}} {
 		var exit = f.run(args...)
 		wantExit(t, exit, 0)
 		if exit.stdout != "" || exit.stderr != "" {
