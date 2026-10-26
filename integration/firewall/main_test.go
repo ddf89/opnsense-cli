@@ -224,7 +224,7 @@ func sweep() []string {
 			}
 		}
 	}
-	return removed
+	return append(removed, geoipSweep(core)...)
 }
 
 // rawDownloadRows reads the uuid and description columns of a download_rules CSV export (";" separated, "@uuid"
