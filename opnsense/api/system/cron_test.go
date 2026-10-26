@@ -197,10 +197,17 @@ func TestCronJobUpdateUnknownUuid(t *testing.T) {
 
 func TestCronJobRemove(t *testing.T) {
 	var api = cronTestApi(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/cron/settings/search_jobs" {
+			_, _ = io.WriteString(w, `{"rows":[{"uuid":"u1"},{"uuid":"refused"}],"rowCount":2,"total":2,"current":1}`)
+			return
+		}
 		if r.Method != "POST" {
 			t.Errorf("unexpected method %s", r.Method)
 		}
 		switch r.URL.Path {
+		case "/api/cron/settings/del_job/gone", "/api/cron/settings/del_job/refused":
+			// 26.7.7 answers an unknown uuid with a bare failure
+			_, _ = io.WriteString(w, `{"result":"failed"}`)
 		case "/api/cron/settings/del_job/u1":
 			_, _ = io.WriteString(w, `{"result":"deleted"}`)
 		case "/api/cron/settings/del_job/registered":
@@ -216,6 +223,13 @@ func TestCronJobRemove(t *testing.T) {
 	}
 	if err := api.CronJobRemove("unknown"); !coreapi.IsNotFound(err) {
 		t.Errorf("expected not found, got %v", err)
+	}
+	if err := api.CronJobRemove("gone"); !coreapi.IsNotFound(err) {
+		t.Errorf("expected not found for a bare failure of an unknown job, got %v", err)
+	}
+	var validationErr *coreapi.ValidationError
+	if err := api.CronJobRemove("refused"); !errors.As(err, &validationErr) {
+		t.Errorf("expected the validation error for a bare failure of an existing job, got %v", err)
 	}
 	var httpErr *coreapi.HttpError
 	if err := api.CronJobRemove("registered"); !errors.As(err, &httpErr) || httpErr.Message != "Cannot delete this automatically registered cron job." {
