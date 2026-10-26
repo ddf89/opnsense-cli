@@ -71,6 +71,15 @@ must not exit the shell. Use `c.Interactive()` only for cosmetics.
 Set `Command.Confirm` to a sentence describing the consequence ("This reboots the firewall."). The framework
 adds a `confirm` flag, asks `[y/N]` in the shell and refuses to run non-interactively without `confirm=yes`.
 
+When the danger depends on the item or the arguments (`set lan device=…` but not `set lan description=…`, the
+restart of webgui but not of unbound), set `Command.ConfirmIf` instead: it runs after `Check` and before `Run`
+(skipped with `confirm=yes`), resolves what it needs and returns the warning sentence for this invocation, `""`
+when it is harmless, or an error (unknown item, locked service, …) that fails before anything is asked. A warning
+is confirmed exactly like `Confirm`. `ConfirmHelp` is required with it and tells in the `?` help when it asks
+("Asks for confirmation before restarting webgui, configd …: that interrupts the management access."). Prefer it over refusing in `Run` with a
+hand made `confirm` argument, and over a static `Confirm` for commands that resolve an item: a bad `#` then
+fails before the question. `Run` must not rely on `ConfirmIf` having run.
+
 ## Tests
 
 Black-box tests in `<area>_test.go` use the harness in `fakeopn_test.go`: `f := newFakeOPN(t)`, canned answers

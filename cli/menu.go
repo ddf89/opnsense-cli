@@ -27,6 +27,15 @@ type Command struct {
 	// Confirm makes the command dangerous: it only runs after the user confirmed this warning interactively, or
 	// with the implicit confirm argument (confirm=yes). It must describe the consequences, e.g. "This reboots the firewall."
 	Confirm string
+	// ConfirmIf makes the command dangerous depending on the item and the arguments (set lan device=… but not set
+	// lan description=…): it runs before Run (after Check, unless confirm=yes is given) and returns the warning
+	// for this invocation, "" when it needs no confirmation, or an error (e.g. unknown item) that fails the
+	// command before anything is asked. A warning is then confirmed exactly like Confirm. A command sets Confirm
+	// or ConfirmIf, not both; ConfirmIf needs ConfirmHelp
+	ConfirmIf func(c *Context, args *Args) (string, error)
+	// ConfirmHelp tells in the "?" help when ConfirmIf asks and why, e.g. "Asks for confirmation before restarting
+	// webgui or configd: that interrupts the management access."; the framework adds that confirm=yes skips it
+	ConfirmHelp string
 	// Check validates the arguments together (e.g. "timeout only with wait") before a confirmation is asked
 	// and before Run; per argument checks belong in Arg.Validate
 	Check func(args *Args) error
@@ -70,7 +79,10 @@ func (m *Menu) Add(commands ...*Command) *Menu {
 				panic(fmt.Sprintf("menu %s: duplicate name %q", m.Path(), name))
 			}
 		}
-		if command.Confirm != "" {
+		if command.ConfirmIf != nil && (command.Confirm != "" || command.ConfirmHelp == "") {
+			panic(fmt.Sprintf("menu %s: command %s: ConfirmIf needs ConfirmHelp and excludes Confirm", m.Path(), command.Name))
+		}
+		if command.Confirm != "" || command.ConfirmIf != nil {
 			command.Args = append(command.Args, Arg{Name: confirmArg, Type: Bool, Help: "run without asking for confirmation"})
 		}
 		m.commands = append(m.commands, command)

@@ -111,23 +111,50 @@ func (s *Session) Execute(words []string) error {
 			return fmt.Errorf("%s: %w", r.command.Name, err)
 		}
 	}
-	if r.command.Confirm != "" && !args.Bool(confirmArg) {
-		if s.Ask == nil {
-			return fmt.Errorf("%s Not run: add confirm=yes to run it without asking", r.command.Confirm)
+	if (r.command.Confirm != "" || r.command.ConfirmIf != nil) && !args.Bool(confirmArg) {
+		var warning = r.command.Confirm
+		if r.command.ConfirmIf != nil {
+			var err = s.Run(func(ctx context.Context) error {
+				var confirmErr error
+				warning, confirmErr = r.command.ConfirmIf(s.context(ctx, r.menu), args)
+				return confirmErr
+			})
+			if err != nil {
+				return err
+			}
 		}
-		var confirmed, askErr = s.Ask(r.command.Confirm + " Continue? [y/N] ")
-		if askErr != nil {
-			return askErr
-		}
-		if !confirmed {
-			return ErrCancelled
+		if err := s.confirm(warning); err != nil {
+			return err
 		}
 	}
 
 	return s.Run(func(ctx context.Context) error {
-		var c = &Context{Context: ctx, Out: s.Out, ErrOut: s.Err, Session: s, Menu: r.menu}
-		return r.command.Run(c, args)
+		return r.command.Run(s.context(ctx, r.menu), args)
 	})
+}
+
+// context is the Context a command (or its ConfirmIf) runs with in menu
+func (s *Session) context(ctx context.Context, menu *Menu) *Context {
+	return &Context{Context: ctx, Out: s.Out, ErrOut: s.Err, Session: s, Menu: menu}
+}
+
+// confirm asks to confirm the warning of a dangerous command in the shell and refuses to run it non-interactively,
+// nothing to do for an empty warning
+func (s *Session) confirm(warning string) error {
+	if warning == "" {
+		return nil
+	}
+	if s.Ask == nil {
+		return fmt.Errorf("%s Not run: add confirm=yes to run it without asking", warning)
+	}
+	var confirmed, err = s.Ask(warning + " Continue? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return ErrCancelled
+	}
+	return nil
 }
 
 // helpCommand returns the command to show help for, nil for menu help (help itself shows the menu)
@@ -231,6 +258,9 @@ func (s *Session) printHelp(menu *Menu, command *Command) {
 		}
 		if command.Confirm != "" {
 			_, _ = fmt.Fprintf(out, "\n%s\n", wrapText(command.Confirm+" It asks for confirmation, or runs directly with confirm=yes.", helpWidth))
+		}
+		if command.ConfirmIf != nil {
+			_, _ = fmt.Fprintf(out, "\n%s\n", wrapText(command.ConfirmHelp+" With confirm=yes it runs without asking.", helpWidth))
 		}
 		if len(command.Args) == 0 {
 			_, _ = fmt.Fprintln(out, "\nno arguments")

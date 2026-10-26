@@ -52,7 +52,7 @@ type Arg struct {
 	Complete func(c *Context) []string
 }
 
-// confirmArg is added to every command with Command.Confirm
+// confirmArg is added to every command with Command.Confirm or Command.ConfirmIf
 const confirmArg = "confirm"
 
 // Args are the parsed and validated arguments of one command invocation
