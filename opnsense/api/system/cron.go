@@ -177,6 +177,13 @@ func (opn *SystemApi) CronJobRemove(uuid string) error {
 		if coreapi.IsNotFound(err) {
 			return &coreapi.NotFoundError{Name: fmt.Sprintf("cron job %s", uuid), Err: err}
 		}
+		// 26.7.7 answers an unknown uuid with a bare "failed" (26.7: "not found")
+		var validationErr *coreapi.ValidationError
+		if errors.As(err, &validationErr) && len(validationErr.Validations) == 0 {
+			if _, getErr := opn.CronJobGet(uuid); coreapi.IsNotFound(getErr) {
+				return getErr
+			}
+		}
 		return err
 	}
 	return nil
