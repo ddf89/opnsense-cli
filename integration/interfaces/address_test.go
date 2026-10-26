@@ -56,12 +56,12 @@ func TestAddressLifecycle(t *testing.T) {
 	})
 	requireContains(t, startPrint, startPrint.stdout, "IPV4-TYPE", "GATEWAY", "PENDING", " wan ", " lan ")
 
-	// lan and wan: shown as protected, every change refused before anything is sent
+	// lan and wan: shown as protected, without confirm=yes every change is refused before anything is sent
 	var shown = mustOpn(t, "/interface/address", "show", "wan")
 	requireContains(t, shown, shown.stdout, "ipv4-type:", "protected:", "yes, it is the WAN interface")
 	for _, args := range [][]string{{"wan", "mtu=1400"}, {"lan", "block-bogons=no"}, {"lan", "ipv4-type=static", "ipv4=192.168.1.1/24"}} {
 		var refused = mustFailOpn(t, append([]string{"/interface/address", "set"}, args...)...)
-		requireContains(t, refused, refused.stderr, "refusing to change the address of "+args[0])
+		requireContains(t, refused, refused.stderr, "Changing the address settings of "+args[0]+" can cut off the access", "Not run: add confirm=yes")
 	}
 	if pending, err := ifs.AssignmentPending(); err != nil || pending {
 		t.Fatalf("the refused changes staged something: %v / %v", pending, err)

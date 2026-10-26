@@ -456,12 +456,6 @@ func TestInterfaceAssignmentGuard(t *testing.T) {
 	if got := guard.warning("opt1", "disabling"); got != "" {
 		t.Errorf("unprotected warning: %q", got)
 	}
-	if err := guard.refuse("wan", "disable"); err == nil || !strings.Contains(err.Error(), "refusing to disable wan: it is the WAN interface") {
-		t.Errorf("refuse: %v", err)
-	}
-	if err := guard.refuse("opt1", "disable"); err != nil {
-		t.Errorf("unprotected refuse: %v", err)
-	}
 }
 
 func TestInterfaceAssignmentHelp(t *testing.T) {
