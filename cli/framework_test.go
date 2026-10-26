@@ -66,6 +66,20 @@ func newTestSession(t *testing.T) (*Session, *bytes.Buffer, *[]string) {
 				return nil
 			}, Run: record},
 	)
+	// break asks only for web.example.lan; the check counts in calls too so a skipped or failed one shows
+	host.Add(&Command{Name: "break", Help: "conditionally dangerous", Args: []Arg{{Name: "item", Positional: true, Required: true}},
+		ConfirmHelp: "Asks for confirmation before breaking web.example.lan.",
+		ConfirmIf: func(c *Context, args *Args) (string, error) {
+			var item, err = Select(c, args.String("item"), items, func(i testItem) string { return i.uuid }, func(i testItem) []string { return []string{i.name} })
+			if err != nil {
+				return "", err
+			}
+			calls = append(calls, "check "+item.uuid)
+			if item.name == "web.example.lan" {
+				return "This breaks the web.", nil
+			}
+			return "", nil
+		}, Run: record})
 	root.Menu("dnsmasq/domain").Add(&Command{Name: "print", Help: "list", Run: record})
 	root.Menu("diag").Add(&Command{Name: "follow", Help: "until cancelled", Run: func(c *Context, args *Args) error {
 		<-c.Done()
@@ -271,6 +285,75 @@ func TestConfirm(t *testing.T) {
 	}
 	if len(asked) != 2 || !strings.Contains(asked[0], "This wipes everything.") {
 		t.Errorf("questions %q", asked)
+	}
+}
+
+func TestConfirmIf(t *testing.T) {
+	var session, out, calls = newTestSession(t)
+	var run = func(line string) error {
+		*calls = nil
+		return session.ExecuteLine(line)
+	}
+	var asked []string
+	var answer bool
+	var ask = func(question string) (bool, error) {
+		asked = append(asked, question)
+		return answer, nil
+	}
+
+	// one-shot: refused without confirm=yes after the check, nothing run
+	if err := run("/dnsmasq/host break 0"); err == nil || err.Error() != "This breaks the web. Not run: add confirm=yes to run it without asking" ||
+		!reflect.DeepEqual(*calls, []string{"check u-0"}) {
+		t.Errorf("non-interactive without confirm: %v %q", err, *calls)
+	}
+	// confirm=yes skips the check and the question
+	session.Ask = func(string) (bool, error) {
+		t.Errorf("asked with confirm=yes")
+		return true, nil
+	}
+	if err := run("/dnsmasq/host break 0 confirm=yes"); err != nil || !reflect.DeepEqual(*calls, []string{"/dnsmasq/host confirm=yes item=0"}) {
+		t.Errorf("confirm=yes: %v %q", err, *calls)
+	}
+	// "" asks nothing, also not interactively
+	session.Ask = ask
+	if err := run("/dnsmasq/host break 1"); err != nil || !reflect.DeepEqual(*calls, []string{"check u-1", "/dnsmasq/host item=1"}) || len(asked) != 0 {
+		t.Errorf("harmless: %v %q %q", err, *calls, asked)
+	}
+	// an error of the check fails before asking and before Run
+	var notFound *coreapi.NotFoundError
+	if err := run("/dnsmasq/host break nope"); !errors.As(err, &notFound) || len(*calls) != 0 || len(asked) != 0 {
+		t.Errorf("unknown item: %v %q %q", err, *calls, asked)
+	}
+	// the shell asks: no cancels, yes runs
+	if err := run("/dnsmasq/host break web.example.lan"); !errors.Is(err, ErrCancelled) || !reflect.DeepEqual(*calls, []string{"check u-0"}) {
+		t.Errorf("declined: %v %q", err, *calls)
+	}
+	answer = true
+	if err := run("/dnsmasq/host break web.example.lan"); err != nil || len(*calls) != 2 {
+		t.Errorf("confirmed: %v %q", err, *calls)
+	}
+	if len(asked) != 2 || asked[0] != "This breaks the web. Continue? [y/N] " {
+		t.Errorf("questions %q", asked)
+	}
+
+	out.Reset()
+	if err := session.ExecuteLine("/dnsmasq/host break ?"); err != nil {
+		t.Fatal(err)
+	}
+	wantContains(t, "help", out.String(), "Asks for confirmation before breaking web.example.lan. With confirm=yes it runs without asking.", "confirm[=yes|no]")
+
+	for name, command := range map[string]*Command{
+		"without ConfirmHelp": {Name: "x", ConfirmIf: func(*Context, *Args) (string, error) { return "", nil }},
+		"with Confirm":        {Name: "x", Confirm: "Bad.", ConfirmHelp: "Bad.", ConfirmIf: func(*Context, *Args) (string, error) { return "", nil }},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: no panic", name)
+				}
+			}()
+			(&Menu{}).Add(command)
+		}()
 	}
 }
 
