@@ -13,7 +13,7 @@
             "label": "Build opn",
             "detail": "go build into dist/opn for the devcontainer's platform",
             "type": "shell",
-            "command": "go build -o ${workspaceFolder}/dist/opn . && echo built ${workspaceFolder}/dist/opn",
+            "command": "rm -f dist/* ; GOARCH=amd64 GOOS=linux go build -o ${workspaceFolder}/dist/opn-linux-amd64 . ; GOARCH=arm64 GOOS=darwin go build -o ${workspaceFolder}/dist/opn-darwin-aarch-64 .",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
