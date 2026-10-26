@@ -216,7 +216,8 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/interface/vip` | `print show add set remove apply` | virtual IPs: `interface= mode=ipalias\|carp\|proxyarp address= vhid= password= adv-base= adv-skew=`; the CARP password is never shown. `/interface/vip-status` shows CARP status and toggles maintenance mode (asks for confirmation) |
 | `/interface/neighbor` | `print show add set remove apply` | static ARP/NDP entries: `address= mac-address= description=` |
 | `/interface/settings` | `print set apply` | offloading, VLAN hardware filter, IPv6 and DHCPv6 settings; apply reconfigures all interfaces and asks for confirmation |
-| `/interface/overview`, `assignment` | `print show reload`, `print` | state and statistics of every device, reload (asks for confirmation); assignments are read only |
+| `/interface/overview` | `print show reload` | state and statistics of every device, reload (asks for confirmation) |
+| `/interface/assignment` | `print show add set remove enable disable apply` | Interfaces > Assignments: `add device= description= locked disabled` assigns a device as the next optN (prints the identifier), `set device= description= locked= disabled=`, print shows staged changes (PENDING); items: #, identifier (opt1), description or device. Relinking, disabling or removing lan, wan or the interface the API connection uses is refused |
 | `/interface/arp`, `ndp`, `netstat` | `print flush`, `print`, `interfaces sockets protocols bpf memory netisr` | ARP (`flush` asks for confirmation) and NDP tables, netstat |
 | `/interface/host-discovery` | `print status start stop restart reconfigure` | hosts found by hostwatch, `/interface/host-discovery/settings` |
 | `/tool` | `torch` | top talkers: `interface= lines= interval= once` |
@@ -282,6 +283,7 @@ Changes are only saved to the configuration. Apply them like in the web UI:
 | Dnsmasq settings, DHCP ranges, options, tags, boot | `/dnsmasq/service reconfigure` |
 | Kea, router advertisements, DHCP relay | `/kea/service reconfigure`, `/radvd/service reconfigure`, `/dhcrelay/service reconfigure` |
 | interface devices, virtual IPs, neighbors, settings | `apply` in the menu, e.g. `/interface/vlan apply` |
+| interface assignments (new, device change, enable/disable, removal) | `/interface/assignment apply` (descriptions and locks are saved at once; apply reconfigures only the changed interfaces but reloads DHCP, DNS and the firewall rules, and sends nothing when nothing is staged) |
 | IPsec | `/vpn/ipsec/service reconfigure` (`enable` first to switch IPsec on) |
 | WireGuard | `/vpn/wireguard/service reconfigure` |
 | captive portal | `/captive-portal/service reconfigure` |
@@ -304,7 +306,9 @@ opn /unbound service reconfigure                                        # now it
 `apply` and `import`, `/firewall/alias/table flush`, `/firewall/state remove|kill|flush|flush-sources`,
 `/firewall/shaper flush-reload`, `/firewall/migration flush`, `/ddclient/account refresh`, removing users, groups and API keys, firmware
 update / upgrade and package changes, `/system/ha sync`, `/system/snapshot activate`, the stop / restart of most
-services, `/interface/lagg|bridge|settings apply`, `/interface/overview reload`, `/interface/arp flush`, the
+services, `/interface/lagg|bridge|settings apply`, `/interface/overview reload`, `/interface/arp flush`,
+`/interface/assignment remove|apply` (on apply a removed interface is taken out of all firewall/NAT rules, rules left
+without an interface are deleted), the
 CARP commands of `/interface/vip-status`, IPsec session disconnect and SAD/SPD remove, captive portal zone
 enable, session disconnect and voucher expire / drop, IDS start / restart / reconfigure and the `reset-data` of
 health and NetFlow ask `[y/N]` in the shell. In one-shot calls and
@@ -316,6 +320,10 @@ scripts there is nobody to ask: they refuse to run unless `confirm=yes` is given
 it prints a revision, and unless `/firewall/rule confirm-apply <revision>` follows within 60 seconds the previous
 rules come back. OPNsense 26.7 has no rollback any more, there `apply` (like the NAT `apply`) loads the rules
 directly, so a wrong rule can cut off your access.
+
+For the same reason `/interface/assignment` refuses to relink, disable or remove `lan`, `wan` or the interface the
+API connection uses, and refuses `apply` while one of them has a change staged (from the web GUI): there is no
+`confirm=yes` for these, use the web GUI.
 
 ### Output
 
