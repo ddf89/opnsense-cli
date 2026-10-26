@@ -123,6 +123,7 @@ completely (arguments not given are reset to their defaults).
 		&Command{
 			Name: "apply",
 			Help: "load the aliases into pf: reload the filter and refresh the alias tables",
+			Long: `Also hands a changed GeoIP URL (/firewall/alias/geoip) to the GeoIP updater.`,
 			Run:  firewallAliasApply,
 		},
 		&Command{
