@@ -11,9 +11,7 @@ import (
 )
 
 // /interface/overview: Interfaces > Overview (api/interfaces/overview): the state of every network device with
-// its assignment, the details and statistics of one device, and the Reload button. /interface/assignment: a
-// read-only list of Interfaces > Assignments (changing assignments remotely can cut off the access, so it is not
-// offered)
+// its assignment, the details and statistics of one device, and the Reload button
 
 const interfaceOverviewItemHelp = "the #, device (vtnet0), identifier (lan, opt1) or description of the interface"
 
@@ -39,17 +37,6 @@ are restarted. Traffic on the interface is interrupted, and on the interface you
 access can be lost (e.g. when a DHCP lease is not renewed).`,
 			Confirm: "This reconfigures the interface: its addresses are applied again and DHCP/PPP clients restarted, traffic on it is interrupted and access through it can be lost.",
 			Args:    []Arg{item}, Run: interfaceOverviewReload},
-	)
-
-	var assignment = Root.Menu("interface/assignment")
-	assignment.Help = "the interface assignments, read only (Interfaces > Assignments)"
-	assignment.Add(
-		&Command{Name: "print", Help: "list the assigned interfaces with their devices",
-			Long: `Read only: changing assignments remotely can cut off the access to the firewall, use the GUI for it.`,
-			Args: []Arg{
-				{Name: "detail", Type: Bool, Help: "show all fields of every assignment"},
-				{Name: "json", Type: Bool, Help: "one JSON object per line, as the API returns them"},
-			}, Run: interfaceAssignmentPrint},
 	)
 }
 
@@ -289,51 +276,6 @@ func interfaceOverviewReload(c *Context, args *Args) error {
 	var _, reloadErr = api.OverviewReload(selected.Identifier)
 	if reloadErr != nil {
 		return fmt.Errorf("reload of %s: %w", selected.Identifier, reloadErr)
-	}
-	return nil
-}
-
-// --- assignment
-
-func interfaceAssignmentPrint(c *Context, args *Args) error {
-	var api, err = interfaceApi(c)
-	if err != nil {
-		return err
-	}
-	var assignments, listErr = api.Assignments()
-	if listErr != nil {
-		return listErr
-	}
-	var identifiers = make([]string, len(assignments))
-	for i, assignment := range assignments {
-		identifiers[i] = assignment.Identifier
-	}
-	switch {
-	case args.Bool("json"):
-		for _, assignment := range assignments {
-			if err := c.JSON(assignment.Raw); err != nil {
-				return err
-			}
-		}
-	case args.Bool("detail"):
-		var blocks = make([][][2]string, len(assignments))
-		for i, assignment := range assignments {
-			blocks[i] = [][2]string{
-				{"identifier", assignment.Identifier},
-				{"description", assignment.Description},
-				{"device", assignment.Device},
-				{"device-info", assignment.DeviceText},
-				{"group", assignment.Group},
-				{"locked", YesNo(Flag(assignment.Locked))},
-			}
-		}
-		c.Details(blocks, identifiers)
-	default:
-		var rows = make([][]string, len(assignments))
-		for i, assignment := range assignments {
-			rows[i] = []string{assignment.Identifier, assignment.Description, assignment.Device, YesNo(Flag(assignment.Locked))}
-		}
-		c.Items([]string{"IDENTIFIER", "DESCRIPTION", "DEVICE", "LOCKED"}, rows, identifiers)
 	}
 	return nil
 }

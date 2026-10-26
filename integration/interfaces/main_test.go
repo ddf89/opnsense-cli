@@ -16,8 +16,10 @@
 // prefix a5-if-<random run id> (VXLANs, which have no description, a VNI of this run), use documentation addresses
 // (192.0.2.0/24, 198.51.100.0/24) and never the WAN subnet; VLANs are created on vtnet0 (LAN) with a tag of 4000 or
 // higher, virtual IPs only on lo0, GIF/GRE tunnels with a documentation local address. Nothing is ever put into a
-// LAGG or bridge (the only candidates are the LAN/WAN devices), assignments and the interface settings are never
-// changed (settings: one field is set and restored without applying). Apply is only run for VLANs, loopbacks,
+// LAGG or bridge (the only candidates are the LAN/WAN devices), the interface settings are never changed (settings:
+// one field is set and restored without applying). Assignments: only a loopback of this run is assigned (description
+// a5_if_<run id>…), lan and wan are never touched, and the assignment apply only runs when nothing but this run's
+// assignment is staged (see assignmentOnlyOwnStaged). Apply is only run for VLANs, loopbacks,
 // VXLANs, virtual IPs and neighbors (scoped to their own device type, see the OPNsense scripts) and only while every
 // configured item of that type belongs to this run; LAGG, bridge, GIF, GRE and settings apply and the interface
 // reload are tested with fakes only. TestMain finally sweeps (only) the records of this run.
@@ -90,6 +92,7 @@ func runMain(m *testing.M) int {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 	opnBinary, opnBuildErr = buildOpn(tmpDir)
+	assignmentBaseline()
 
 	var code = m.Run()
 
@@ -194,7 +197,8 @@ func sweep() []string {
 		return nil
 	}
 	var ifApi = &interfaces.InterfacesApi{OPNsense: core}
-	var removed []string
+	// assignments first, an assigned device can not be removed
+	var removed = sweepAssignments(ifApi)
 	for _, kind := range interfaces.Kinds {
 		var items, listErr = ifApi.List(kind)
 		if listErr != nil {
