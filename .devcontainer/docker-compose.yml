@@ -1,4 +1,5 @@
 volumes:
+  vschome:
   apikeys:
   apikeys2:
   apikeys3:
@@ -13,9 +14,10 @@ services:
       - "8080:8080"
     volumes:
       - ../:/workspace/opnsense-cli
+      - vschome:/home/vscode
       - apikeys:/keys:rw
       - apikeys2:/keys2:rw
-      - apikeys4:/keys3:rw
+      - apikeys3:/keys3:rw
 
   opnsense-dev:
     image: ghcr.io/ddf89/docker-opnsense:26.7
