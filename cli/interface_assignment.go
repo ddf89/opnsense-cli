@@ -14,18 +14,24 @@ import (
 // (lan, wan, optN). Changes are staged by OPNsense and applied together with apply (POST reconfigure).
 //
 // Access protection: changing the device of, disabling or removing the lan or wan assignment, or the assignment
-// whose addresses include the address the API connection goes to, is refused (there is no confirm=yes override):
-// OPNsense has no rollback for an assignment apply, a wrong relink of the interface the CLI talks through ends
-// the remote access for good, and such a change belongs on the console or in the GUI. apply is refused while one
-// of these interfaces has a staged change (made elsewhere, e.g. in the GUI)
+// whose addresses include the address the API connection goes to, asks for confirmation with a warning
+// (Command.ConfirmIf, confirm=yes skips it): OPNsense has no rollback for an assignment apply, a wrong relink of the
+// interface the CLI talks through ends the remote access for good. apply warns the same way while one of these
+// interfaces has a staged change (also one made elsewhere, e.g. in the GUI)
 
 const interfaceAssignmentItemHelp = "the #, identifier (opt1), description or device of the assignment"
 
 const interfaceAssignmentApplyHint = `Changes are staged, run "/interface/assignment apply" to apply them.`
 
-const interfaceAssignmentProtectedHelp = `The device of the lan and wan assignment and of the assignment the API connection goes through (when its
-address is one of the firewall's addresses) can not be changed here, nor can they be disabled or removed:
-that can cut off the access to the firewall, use the console or the GUI for it.`
+// interfaceAssignmentProtected names the protected interfaces in help texts
+const interfaceAssignmentProtected = "lan, wan or the interface the API connection goes through (when its address is one of the firewall's addresses)"
+
+const (
+	interfaceAssignmentRemoveWarning = "This unassigns the interface; when applied it is taken out of all firewall and NAT rules, " +
+		"and rules left without an interface are removed."
+	interfaceAssignmentApplyWarning = "This applies all staged assignment changes: the changed interfaces are reconfigured, DHCP " +
+		"and DNS are reloaded, removed interfaces are taken out of the firewall/NAT rules and the firewall rules are reloaded."
+)
 
 func init() {
 	var menu = Root.Menu("interface/assignment")
@@ -63,29 +69,36 @@ A device can only be assigned once.
 			Long: `A new description or lock is saved at once, a new device (relink) and disabled are staged for apply.
 OPNsense ignores a change back to the applied value while a change of the interface is staged (disable, then
 enable before apply): set fails then, apply the staged change first.
-` + interfaceAssignmentProtectedHelp + `
 ` + interfaceAssignmentApplyHint,
-			Args: append([]Arg{item}, fields(false)...), Check: interfaceAssignmentCheckSet, Run: interfaceAssignmentSet},
+			ConfirmHelp: "Asks for confirmation before changing the device of, or disabling, " + interfaceAssignmentProtected +
+				": that can cut off the access to the firewall, and there is no rollback.",
+			ConfirmIf: interfaceAssignmentConfirmSet,
+			Args:      append([]Arg{item}, fields(false)...), Check: interfaceAssignmentCheckSet, Run: interfaceAssignmentSet},
 		&Command{Name: "remove", Help: "unassign an interface (staged for apply)",
 			Long: `OPNsense refuses locked interfaces (unlock with set <item> locked=no first) and members of an interface group,
 bridge, GRE or GIF tunnel. When the removal is applied, the interface is taken out of every firewall filter,
 NAT, NPT and 1:1 rule, and rules left without an interface are deleted; other references (DHCP, DNS, routes)
 are not cleaned.
-` + interfaceAssignmentProtectedHelp + `
 ` + interfaceAssignmentApplyHint,
-			Confirm: "This unassigns the interface; when applied it is taken out of all firewall and NAT rules, and rules left without an interface are removed.",
-			Args:    []Arg{item}, Run: interfaceAssignmentRemove},
+			ConfirmHelp: "Always asks for confirmation; for " + interfaceAssignmentProtected +
+				" it warns first that the removal can cut off the access to the firewall.",
+			ConfirmIf: interfaceAssignmentConfirmRemove,
+			Args:      []Arg{item}, Run: interfaceAssignmentRemove},
 		&Command{Name: "enable", Help: "enable an interface (staged for apply)", Args: []Arg{item}, Run: interfaceAssignmentEnabler(true)},
 		&Command{Name: "disable", Help: "disable an interface (staged for apply)",
-			Long: interfaceAssignmentProtectedHelp, Args: []Arg{item}, Run: interfaceAssignmentEnabler(false)},
+			ConfirmHelp: "Asks for confirmation before disabling " + interfaceAssignmentProtected +
+				": that can cut off the access to the firewall, and there is no rollback.",
+			ConfirmIf: interfaceAssignmentConfirmDisable,
+			Args:      []Arg{item}, Run: interfaceAssignmentEnabler(false)},
 		&Command{Name: "apply", Aliases: []string{"reconfigure"}, Help: "apply the staged assignment changes",
 			Long: `Applies every staged change, also those made in the GUI: the changed interfaces are reset and configured
 again (removed ones are taken down), their routing, IPsec and dynamic DNS are reconfigured, the DHCP and DNS
 services are reloaded, removed interfaces are deleted from the firewall and NAT rules, and the firewall rules
-are reloaded. Nothing is sent when no change is staged. apply is refused while the lan or wan interface, or the
-one the API connection goes through, has a staged change: apply that in the GUI.`,
-			Confirm: "This applies all staged assignment changes: the changed interfaces are reconfigured, DHCP and DNS are reloaded, removed interfaces are taken out of the firewall/NAT rules and the firewall rules are reloaded.",
-			Run:     interfaceAssignmentApply},
+are reloaded. Nothing is sent (and nothing asked) when no change is staged.`,
+			ConfirmHelp: "Asks for confirmation when changes are staged; when " + interfaceAssignmentProtected +
+				" has a staged change, it warns first that applying can cut off the access to the firewall.",
+			ConfirmIf: interfaceAssignmentConfirmApply,
+			Run:       interfaceAssignmentApply},
 	)
 }
 
@@ -234,6 +247,18 @@ func interfaceAssignmentApiAddresses(c *Context, api *interfaces.InterfacesApi) 
 	return ips
 }
 
+// warning is the confirmation warning for doing what (a gerund phrase like "changing the device of", "disabling")
+// to the interface, "" when it is not protected. Use it in a Command.ConfirmIf
+func (guard interfaceAssignmentGuard) warning(identifier string, what string) string {
+	var reason, protected = guard.protected[identifier]
+	if !protected {
+		return ""
+	}
+	return fmt.Sprintf("%s%s %s can cut off the access to the firewall (%s), there is no rollback.",
+		strings.ToUpper(what[:1]), what[1:], identifier, reason)
+}
+
+// refuse fails for a protected interface; what is an infinitive phrase like "change the device of"
 func (guard interfaceAssignmentGuard) refuse(identifier string, what string) error {
 	if reason, protected := guard.protected[identifier]; protected {
 		return fmt.Errorf("refusing to %s %s: %s, doing that remotely can cut off the access to the firewall (use the console or the GUI)",
@@ -326,6 +351,117 @@ func interfaceAssignmentShow(c *Context, args *Args) error {
 	return nil
 }
 
+// --- confirmations: what may cut off the access asks with the guard's warning
+
+func interfaceAssignmentConfirmSet(c *Context, args *Args) (string, error) {
+	if !args.Has("device") && !args.Bool("disabled") {
+		return "", nil
+	}
+	var api, err = interfaceApi(c)
+	if err != nil {
+		return "", err
+	}
+	var list, listErr = api.Assignments()
+	if listErr != nil {
+		return "", listErr
+	}
+	var assignment, selectErr = interfaceAssignmentSelect(c, list, args.String("item"))
+	if selectErr != nil {
+		return "", selectErr
+	}
+	var change = interfaceAssignmentChange(args)
+	var what []string
+	if change.Device != nil && *change.Device != assignment.Device {
+		what = append(what, "changing the device of")
+	}
+	if change.Enabled != nil && !*change.Enabled {
+		what = append(what, "disabling")
+	}
+	if len(what) == 0 {
+		return "", nil
+	}
+	var guard, guardErr = interfaceAssignmentGuardFor(c, api)
+	if guardErr != nil {
+		return "", guardErr
+	}
+	return guard.warning(assignment.Identifier, strings.Join(what, " and ")), nil
+}
+
+func interfaceAssignmentConfirmDisable(c *Context, args *Args) (string, error) {
+	var api, err = interfaceApi(c)
+	if err != nil {
+		return "", err
+	}
+	var list, listErr = api.Assignments()
+	if listErr != nil {
+		return "", listErr
+	}
+	var assignment, selectErr = interfaceAssignmentSelect(c, list, args.String("item"))
+	if selectErr != nil {
+		return "", selectErr
+	}
+	var guard, guardErr = interfaceAssignmentGuardFor(c, api)
+	if guardErr != nil {
+		return "", guardErr
+	}
+	return guard.warning(assignment.Identifier, "disabling"), nil
+}
+
+// interfaceAssignmentConfirmRemove always asks, with the access warning first for a protected interface
+func interfaceAssignmentConfirmRemove(c *Context, args *Args) (string, error) {
+	var api, assignment, err = interfaceAssignmentRemovable(c, args)
+	if err != nil {
+		return "", err
+	}
+	var guard, guardErr = interfaceAssignmentGuardFor(c, api)
+	if guardErr != nil {
+		return "", guardErr
+	}
+	return strings.TrimSpace(guard.warning(assignment.Identifier, "removing") + " " + interfaceAssignmentRemoveWarning), nil
+}
+
+// interfaceAssignmentConfirmApply asks when changes are staged, with the access warning first for each staged
+// change or removal of a protected interface; nothing staged: no question, apply only tells so
+func interfaceAssignmentConfirmApply(c *Context, _ *Args) (string, error) {
+	var api, err = interfaceApi(c)
+	if err != nil {
+		return "", err
+	}
+	var pending, pendingErr = api.AssignmentPending()
+	if pendingErr != nil || !pending {
+		return "", pendingErr
+	}
+	var list, listErr = api.Assignments()
+	if listErr != nil {
+		return "", listErr
+	}
+	var guard, guardErr = interfaceAssignmentGuardFor(c, api)
+	if guardErr != nil {
+		return "", guardErr
+	}
+	var warnings []string
+	var listed = map[string]bool{}
+	for _, assignment := range list {
+		listed[assignment.Identifier] = true
+		if assignment.PendingAction != "" {
+			if warning := guard.warning(assignment.Identifier, "applying the staged change ("+assignment.PendingAction+") of"); warning != "" {
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+	var identifiers = make([]string, 0, len(guard.protected))
+	for identifier := range guard.protected {
+		identifiers = append(identifiers, identifier)
+	}
+	sort.Strings(identifiers)
+	for _, identifier := range identifiers {
+		if guard.configured[identifier] && !listed[identifier] {
+			warnings = append(warnings, guard.warning(identifier, "applying the staged removal of"))
+		}
+	}
+	return strings.Join(append(warnings, interfaceAssignmentApplyWarning), " "), nil
+}
+
 // --- changes
 
 func interfaceAssignmentChange(args *Args) interfaces.AssignmentChange {
@@ -400,22 +536,6 @@ func interfaceAssignmentSet(c *Context, args *Args) error {
 	}
 	var change = interfaceAssignmentChange(args)
 	var relink = change.Device != nil && *change.Device != assignment.Device
-	if relink || change.Enabled != nil && !*change.Enabled {
-		var guard, guardErr = interfaceAssignmentGuardFor(c, api)
-		if guardErr != nil {
-			return guardErr
-		}
-		if relink {
-			if err := guard.refuse(assignment.Identifier, "change the device of"); err != nil {
-				return err
-			}
-		}
-		if change.Enabled != nil && !*change.Enabled {
-			if err := guard.refuse(assignment.Identifier, "disable"); err != nil {
-				return err
-			}
-		}
-	}
 	if change.Description != nil {
 		if err := interfaceAssignmentCheckDescription(list, *change.Description, assignment.Identifier); err != nil {
 			return err
@@ -443,41 +563,35 @@ func interfaceAssignmentEnabler(enable bool) func(c *Context, args *Args) error 
 		if selectErr != nil {
 			return selectErr
 		}
-		if !enable {
-			var guard, guardErr = interfaceAssignmentGuardFor(c, api)
-			if guardErr != nil {
-				return guardErr
-			}
-			if err := guard.refuse(assignment.Identifier, "disable"); err != nil {
-				return err
-			}
-		}
 		return api.AssignmentUpdate(assignment.Identifier, interfaces.AssignmentChange{Enabled: &enable})
 	}
 }
 
-func interfaceAssignmentRemove(c *Context, args *Args) error {
+// interfaceAssignmentRemovable selects the assignment to remove, failing for a locked one
+func interfaceAssignmentRemovable(c *Context, args *Args) (*interfaces.InterfacesApi, interfaces.Assignment, error) {
 	var api, err = interfaceApi(c)
 	if err != nil {
-		return err
+		return nil, interfaces.Assignment{}, err
 	}
 	var list, listErr = api.Assignments()
 	if listErr != nil {
-		return listErr
+		return nil, interfaces.Assignment{}, listErr
 	}
 	var assignment, selectErr = interfaceAssignmentSelect(c, list, args.String("item"))
 	if selectErr != nil {
-		return selectErr
-	}
-	var guard, guardErr = interfaceAssignmentGuardFor(c, api)
-	if guardErr != nil {
-		return guardErr
-	}
-	if err := guard.refuse(assignment.Identifier, "remove"); err != nil {
-		return err
+		return nil, interfaces.Assignment{}, selectErr
 	}
 	if assignment.Locked {
-		return fmt.Errorf("interface %s is locked, unlock it first with: set %s locked=no", assignment.Identifier, assignment.Identifier)
+		return nil, interfaces.Assignment{}, fmt.Errorf("interface %s is locked, unlock it first with: set %s locked=no",
+			assignment.Identifier, assignment.Identifier)
+	}
+	return api, assignment, nil
+}
+
+func interfaceAssignmentRemove(c *Context, args *Args) error {
+	var api, assignment, err = interfaceAssignmentRemovable(c, args)
+	if err != nil {
+		return err
 	}
 	return api.AssignmentRemove(assignment.Identifier)
 }
@@ -499,30 +613,10 @@ func interfaceAssignmentApply(c *Context, _ *Args) error {
 	if listErr != nil {
 		return listErr
 	}
-	var guard, guardErr = interfaceAssignmentGuardFor(c, api)
-	if guardErr != nil {
-		return guardErr
-	}
-	var listed = map[string]bool{}
 	var changes []string
 	for _, assignment := range list {
-		listed[assignment.Identifier] = true
-		if assignment.PendingAction == "" {
-			continue
-		}
-		if err := guard.refuse(assignment.Identifier, "apply the staged change ("+assignment.PendingAction+") of"); err != nil {
-			return err
-		}
-		changes = append(changes, assignment.Identifier+" "+assignment.PendingAction)
-	}
-	var identifiers = make([]string, 0, len(guard.protected))
-	for identifier := range guard.protected {
-		identifiers = append(identifiers, identifier)
-	}
-	sort.Strings(identifiers)
-	for _, identifier := range identifiers {
-		if guard.configured[identifier] && !listed[identifier] {
-			return guard.refuse(identifier, "apply the staged removal of")
+		if assignment.PendingAction != "" {
+			changes = append(changes, assignment.Identifier+" "+assignment.PendingAction)
 		}
 	}
 	if len(changes) > 0 {
