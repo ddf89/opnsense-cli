@@ -223,7 +223,14 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/tool/sniffer` | `print start stop view download remove` | packet capture: `start interface= host= port= protocol= count= duration=`, `download <capture> file= overwrite` (pcap files in a zip) |
 | `/tool/netflow` | `print set status reconfigure reset-data` | NetFlow: `interfaces= egress-only= version= targets= collect`; `/tool/netflow/cache print` |
 | `/tool/insight` | `print history export` | NetFlow data: `print by=interface\|protocol\|service\|talker\|flow from= to= measure= limit=`, `history`, CSV `export` |
+| `/ddclient/account` | `print show add set remove enable disable refresh` | Dynamic DNS accounts (plugin os-ddclient): `description= service= username= password= hostnames= check-ip= interface= zone= ttl= disabled`; items: the description; print shows the current address and last update, `print options=service` the services of the backend; passwords are never printed, `refresh` forces an update at the provider (asks for confirmation) |
+| `/ddclient/settings`, `/ddclient/service` | `print set`, `status start stop restart reconfigure` | `enabled verbose allow-ipv6 interval= backend=native\|ddclient` |
+| `/node-exporter/settings`, `/node-exporter/service` | `print set`, `status start stop restart reconfigure` | Prometheus node exporter (plugin os-node_exporter): `enabled listen-address= listen-port= collectors=` |
 | `/` | `import check version` | `import file`; `check` tests the API connection, `version` shows opn's version (see below) |
+
+`/ddclient` and `/node-exporter` need their plugin (`/system/firmware/plugin install os-ddclient`,
+`os-node_exporter`); without it they say so. Let the node exporter listen on a LAN address or 127.0.0.1 rather than
+the default 0.0.0.0 (all interfaces, WAN included).
 
 `help` and `exit` work in every menu. `opn <menu> ?` and `opn <menu> <command> ?` list everything with its help.
 
@@ -281,6 +288,7 @@ Changes are only saved to the configuration. Apply them like in the web UI:
 | Monit | `/monit/service-control reconfigure` |
 | NetFlow, health settings | `/tool/netflow reconfigure`, `/system/health/settings reconfigure` |
 | HA settings | `/system/ha apply` |
+| Dynamic DNS (os-ddclient), node exporter (os-node_exporter) | `/ddclient/service reconfigure`, `/node-exporter/service reconfigure` |
 
 ```
 opn /unbound host-override add host=foo domain=bar.tld ip=10.10.10.1    # not resolvable yet
@@ -293,7 +301,7 @@ opn /unbound service reconfigure                                        # now it
 `/log clear`, `/system/route/status remove`, `/system/trust/certificate reissue`, `/system/trust/revocation remove`,
 `/vpn/openvpn/instance stop|restart`, `/vpn/openvpn/session remove`, `/firewall/rule apply|revert|import`, the NAT
 `apply` and `import`, `/firewall/alias/table flush`, `/firewall/state remove|kill|flush|flush-sources`,
-`/firewall/shaper flush-reload`, `/firewall/migration flush`, removing users, groups and API keys, firmware
+`/firewall/shaper flush-reload`, `/firewall/migration flush`, `/ddclient/account refresh`, removing users, groups and API keys, firmware
 update / upgrade and package changes, `/system/ha sync`, `/system/snapshot activate`, the stop / restart of most
 services, `/interface/lagg|bridge|settings apply`, `/interface/overview reload`, `/interface/arp flush`, the
 CARP commands of `/interface/vip-status`, IPsec session disconnect and SAD/SPD remove, captive portal zone
