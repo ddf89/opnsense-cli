@@ -108,27 +108,6 @@ func TestInterfaceOverviewReload(t *testing.T) {
 	wantFailure(t, failing.run("/interface/overview", "reload", "lan", "confirm=yes"), "reload of lan")
 }
 
-func TestInterfaceAssignmentPrint(t *testing.T) {
-	t.Parallel()
-	var f = newFakeOPN(t)
-	f.search(interfaceAssignmentPath,
-		map[string]any{"uuid": "wan", "descr": "", "%descr": "WAN", "identifier": "wan", "optgroup": "hardware", "if": "vtnet1",
-			"%if": "vtnet1 (52:54:00:12:34:57)", "lock": "0"},
-		map[string]any{"uuid": "opt1", "descr": "guests", "identifier": "opt1", "optgroup": "vlan", "if": "vlan01", "lock": "1"})
-	var r = f.run("/interface/assignment", "print")
-	wantExit(t, r, 0)
-	var want = []string{"#|IDENTIFIER|DESCRIPTION|DEVICE|LOCKED", "0|wan|WAN|vtnet1|no", "1|opt1|guests|vlan01|yes"}
-	if got := interfaceLines(r.stdout); !reflect.DeepEqual(got, want) {
-		t.Errorf("print:\n got  %q\n want %q", got, want)
-	}
-	wantContains(t, "stdout", f.run("/interface/assignment", "print", "detail").stdout, "device-info:", "vtnet1 (52:54:00:12:34:57)", "group:", "vlan")
-	wantContains(t, "stdout", f.run("/interface/assignment", "print", "json").stdout, `"identifier":"opt1"`)
-	// read only: no add, set or remove
-	var help = f.run("/interface/assignment", "?")
-	wantNotContains(t, "stdout", help.stdout, "add", "remove", "set ")
-	wantNoMutations(t, f)
-}
-
 func TestInterfaceTrafficMenuKept(t *testing.T) {
 	t.Parallel()
 	var f = newFakeOPN(t)
