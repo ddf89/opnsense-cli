@@ -316,5 +316,55 @@ func systemFirmwarePackageAction(c *Context, args *Args, kind systemFirmwarePack
 		return systemFirmwareFollowErr(runErr)
 	}
 	systemFirmwareFinished(c, what, progress)
-	return nil
+	if args.Bool("background") || progress.Status == system.FirmwareProgressReboot {
+		return nil
+	}
+	return systemFirmwarePackageVerify(api, kind, action, pkg.Name, progress.Log)
+}
+
+// systemFirmwarePackageVerify checks that a finished action changed the package. OPNsense ends a refused action
+// (e.g. "Installation out of date. The update to opnsense-26.7.7 is required.") with ***DONE*** like a successful
+// one. A reinstall can not be checked this way, the package is installed before and after
+func systemFirmwarePackageVerify(api *system.SystemApi, kind systemFirmwarePackageKind, action system.FirmwareAction, name string, log string) error {
+	var all, err = systemFirmwarePackageList(api, kind, true)
+	if err != nil {
+		return err
+	}
+	var done = action == system.FirmwareActionRemove
+	for _, pkg := range all {
+		if pkg.Name != name {
+			continue
+		}
+		switch action {
+		case system.FirmwareActionInstall, system.FirmwareActionReinstall:
+			done = pkg.Installed
+		case system.FirmwareActionRemove:
+			done = !pkg.Installed
+		case system.FirmwareActionLock:
+			done = pkg.Locked
+		case system.FirmwareActionUnlock:
+			done = !pkg.Locked
+		}
+	}
+	if done {
+		return nil
+	}
+	if reason := systemFirmwareLogReason(log); reason != "" {
+		return fmt.Errorf("the %s of %s failed: %s", action, name, reason)
+	}
+	return fmt.Errorf(`the %s of %s failed, see "/system/firmware log"`, action, name)
+}
+
+// systemFirmwareLogReason returns the last line of a firmware log that is not a ***MARKER*** or the
+// "Currently running ..." header, the reason OPNsense gives for a refused action
+func systemFirmwareLogReason(log string) string {
+	var lines = strings.Split(strings.TrimSpace(log), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var line = strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "***") || strings.HasPrefix(line, "Currently running") {
+			continue
+		}
+		return line
+	}
+	return ""
 }
