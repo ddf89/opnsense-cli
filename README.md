@@ -148,7 +148,7 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/system/user/api-key` | `print add remove` | `add <user> file= overwrite` prints key and secret once; the key opn uses can't be removed |
 | `/system/group` | `print show add set remove` | `name= description= members= privileges= source-networks=`; the admins group is protected |
 | `/system/privilege` | `print show grant revoke` | `print user= group= granted`, `grant <privilege> user= group=` |
-| `/system/service` | `print show start stop restart` | all services (System > Diagnostics > Services); stopping or restarting webgui, configd, openssh, pf or routing needs `confirm=yes` |
+| `/system/service` | `print show start stop restart` | all services (System > Diagnostics > Services); stopping a running service and restarting webgui, configd, openssh, pf or routing ask for confirmation |
 | `/system/firmware` | `status check audit update upgrade log` | `audit type=security\|health\|connection`; actions run on the firewall, opn follows their log (`background` only starts them) |
 | `/system/firmware/package`, `/system/firmware/plugin` | `print show license install remove reinstall lock unlock` | `print all`; everything that changes packages asks for confirmation |
 | `/system/firmware/changelog`, `/system/firmware/settings` | `print show`, `print set` | settings: `mirror= flavour= type= subscription=` (masked) |
@@ -217,7 +217,8 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/interface/neighbor` | `print show add set remove apply` | static ARP/NDP entries: `address= mac-address= description=` |
 | `/interface/settings` | `print set apply` | offloading, VLAN hardware filter, IPv6 and DHCPv6 settings; apply reconfigures all interfaces and asks for confirmation |
 | `/interface/overview` | `print show reload` | state and statistics of every device, reload (asks for confirmation) |
-| `/interface/assignment` | `print show add set remove enable disable apply` | Interfaces > Assignments: `add device= description= locked disabled` assigns a device as the next optN (prints the identifier), `set device= description= locked= disabled=`, print shows staged changes (PENDING); items: #, identifier (opt1), description or device. Relinking, disabling or removing lan, wan or the interface the API connection uses is refused |
+| `/interface/assignment` | `print show add set remove enable disable apply` | Interfaces > Assignments: `add device= description= locked disabled` assigns a device as the next optN (prints the identifier), `set device= description= locked= disabled=`, print shows staged changes (PENDING); items: #, identifier (opt1), description or device. Relinking, disabling or removing lan, wan or the interface the API connection uses asks for confirmation with an access warning |
+| `/interface/address` | `print show set` | Interfaces > [name]: address configuration of the assigned interfaces. `set ipv4-type=none\|static\|dhcp\|pppoe\|ppp\|pptp\|l2tp ipv4=addr/bits gateway4= ipv6-type=none\|static\|dhcp6\|slaac\|linklocal\|6to4\|idassoc6\|track6\|pppoev6 ipv6=addr/bits gateway6= track6-interface= track6-prefix-id=0x.. mtu= mss= mac= block-private block-bogons dhcp-hostname= dhcp-reject-from=`; print shows type, address, gateway, MTU and staged changes (PENDING); items: #, identifier, description or device. Changes to lan, wan or the interface the API connection uses ask for confirmation with an access warning |
 | `/interface/arp`, `ndp`, `netstat` | `print flush`, `print`, `interfaces sockets protocols bpf memory netisr` | ARP (`flush` asks for confirmation) and NDP tables, netstat |
 | `/interface/host-discovery` | `print status start stop restart reconfigure` | hosts found by hostwatch, `/interface/host-discovery/settings` |
 | `/tool` | `torch` | top talkers: `interface= lines= interval= once` |
@@ -283,7 +284,7 @@ Changes are only saved to the configuration. Apply them like in the web UI:
 | Dnsmasq settings, DHCP ranges, options, tags, boot | `/dnsmasq/service reconfigure` |
 | Kea, router advertisements, DHCP relay | `/kea/service reconfigure`, `/radvd/service reconfigure`, `/dhcrelay/service reconfigure` |
 | interface devices, virtual IPs, neighbors, settings | `apply` in the menu, e.g. `/interface/vlan apply` |
-| interface assignments (new, device change, enable/disable, removal) | `/interface/assignment apply` (descriptions and locks are saved at once; apply reconfigures only the changed interfaces but reloads DHCP, DNS and the firewall rules, and sends nothing when nothing is staged) |
+| interface assignments (new, device change, enable/disable, removal) and addresses (`/interface/address set`) | `/interface/assignment apply` (descriptions and locks are saved at once; apply reconfigures only the changed interfaces but reloads DHCP, DNS and the firewall rules, and sends nothing when nothing is staged) |
 | IPsec | `/vpn/ipsec/service reconfigure` (`enable` first to switch IPsec on) |
 | WireGuard | `/vpn/wireguard/service reconfigure` |
 | captive portal | `/captive-portal/service reconfigure` |
@@ -308,7 +309,8 @@ opn /unbound service reconfigure                                        # now it
 update / upgrade and package changes, `/system/ha sync`, `/system/snapshot activate`, the stop / restart of most
 services, `/interface/lagg|bridge|settings apply`, `/interface/overview reload`, `/interface/arp flush`,
 `/interface/assignment remove|apply` (on apply a removed interface is taken out of all firewall/NAT rules, rules left
-without an interface are deleted), the
+without an interface are deleted), `/interface/assignment set|disable` and `/interface/address set` of `lan`, `wan`
+or the access interface, the
 CARP commands of `/interface/vip-status`, IPsec session disconnect and SAD/SPD remove, captive portal zone
 enable, session disconnect and voucher expire / drop, IDS start / restart / reconfigure and the `reset-data` of
 health and NetFlow ask `[y/N]` in the shell. In one-shot calls and
@@ -321,9 +323,11 @@ it prints a revision, and unless `/firewall/rule confirm-apply <revision>` follo
 rules come back. OPNsense 26.7 has no rollback any more, there `apply` (like the NAT `apply`) loads the rules
 directly, so a wrong rule can cut off your access.
 
-For the same reason `/interface/assignment` refuses to relink, disable or remove `lan`, `wan` or the interface the
-API connection uses, and refuses `apply` while one of them has a change staged (from the web GUI): there is no
-`confirm=yes` for these, use the web GUI.
+For the same reason relinking, disabling or removing `lan`, `wan` or the interface the API connection uses
+(`/interface/assignment`), changing their address settings (`/interface/address`), and `apply` while one of them
+has a change staged (also one made in the web GUI) ask for confirmation with a warning that this can cut off the
+access to the firewall, and there is no rollback. `confirm=yes` skips the question; prefer the console or the web
+GUI for these.
 
 ### Output
 
