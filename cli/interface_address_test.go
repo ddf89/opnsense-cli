@@ -177,10 +177,10 @@ func TestInterfaceAddressSet(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"wan", "mtu=1400"}, "refusing to change the address of wan: it is the WAN interface"},
-		{[]string{"lan", "block-bogons"}, "refusing to change the address of lan: it is the LAN interface"},
-		{[]string{"1", "ipv4-type=none"}, "refusing to change the address of lan"},
-		{[]string{"mgmt", "mtu=1500"}, "refusing to change the address of opt2: the API connection goes to its address 127.0.0.1"},
+		{[]string{"wan", "mtu=1400"}, "Changing the address settings of wan can cut off the access to the firewall (it is the WAN interface), there is no rollback. Not run: add confirm=yes"},
+		{[]string{"lan", "block-bogons"}, "Changing the address settings of lan can cut off the access to the firewall (it is the LAN interface)"},
+		{[]string{"1", "ipv4-type=none"}, "Changing the address settings of lan can cut off"},
+		{[]string{"mgmt", "mtu=1500"}, "Changing the address settings of opt2 can cut off the access to the firewall (the API connection goes to its address 127.0.0.1)"},
 		{[]string{"opt1"}, "nothing to change"},
 		{[]string{"opt9", "mtu=1400"}, "not found"},
 		{[]string{"opt1", "ipv4-type=dhcp", "ipv4=192.0.2.1/24"}, "ipv4= needs ipv4-type=static (the type is dhcp)"},
@@ -218,6 +218,11 @@ func TestInterfaceAddressSet(t *testing.T) {
 		wantFailure(t, r, tc.want)
 		wantNoMutations(t, refused.fakeOPN)
 	}
+
+	// confirm=yes changes a protected interface
+	var confirmed = newInterfaceAddressFake(t)
+	wantExit(t, confirmed.run("/interface/address", "set", "lan", "mtu=1400", "confirm=yes"), 0)
+	wantJSON(t, wantOneMutation(t, confirmed.fakeOPN, "POST", interfaceAddressApi+"set_item/lan"), map[string]any{"interface": map[string]any{"mtu": "1400"}})
 
 	// OPNsense ignored the change (a change back to the applied value while another one is staged)
 	var ignored = newInterfaceAddressFake(t)

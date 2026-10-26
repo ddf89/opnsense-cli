@@ -258,15 +258,6 @@ func (guard interfaceAssignmentGuard) warning(identifier string, what string) st
 		strings.ToUpper(what[:1]), what[1:], identifier, reason)
 }
 
-// refuse fails for a protected interface; what is an infinitive phrase like "change the device of"
-func (guard interfaceAssignmentGuard) refuse(identifier string, what string) error {
-	if reason, protected := guard.protected[identifier]; protected {
-		return fmt.Errorf("refusing to %s %s: %s, doing that remotely can cut off the access to the firewall (use the console or the GUI)",
-			what, identifier, reason)
-	}
-	return nil
-}
-
 // --- print and show
 
 func interfaceAssignmentDetail(assignment interfaces.Assignment) [][2]string {

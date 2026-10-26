@@ -15,17 +15,16 @@ import (
 // change, every address change is staged and takes effect with "/interface/assignment apply"; there is no apply
 // here.
 //
-// Access protection: the address settings of lan, wan and the interface the API connection goes through are not
-// changed (see interfaceAddressProtect)
+// Access protection: changing the address settings of lan, wan and the interface the API connection goes through
+// asks for confirmation (Command.ConfirmIf, confirm=yes skips it), like relinking them in /interface/assignment
 
 const interfaceAddressItemHelp = "the #, identifier (opt1), description or device of the interface"
 
 const interfaceAddressApplyHint = `Changes are staged, run "/interface/assignment apply" to apply them (it applies all staged assignment and
 address changes).`
 
-const interfaceAddressProtectedHelp = `The address settings of lan, wan and of the interface the API connection goes through (when its address is
-one of the firewall's addresses) can not be changed here: that can cut off the access to the firewall, use the
-console or the GUI for it.`
+const interfaceAddressProtectedHelp = `Changing the address settings of lan, wan or of the interface the API connection goes through (when its
+address is one of the firewall's addresses) asks for confirmation: that can cut off the access to the firewall.`
 
 // the address types: CLI name and OPNsense key
 var (
@@ -57,6 +56,9 @@ changes wait for "/interface/assignment apply".`,
 			}, Run: interfaceAddressPrint},
 		&Command{Name: "show", Help: "show the address configuration of one interface", Args: []Arg{item}, Run: interfaceAddressShow},
 		&Command{Name: "set", Help: "change the address configuration of an interface, the other fields are kept",
+			ConfirmHelp: "Asks for confirmation before changing the address settings of " + interfaceAssignmentProtected +
+				": that can cut off the access to the firewall, and there is no rollback.",
+			ConfirmIf: interfaceAddressConfirmSet,
 			Long: `ipv4= and gateway4= need ipv4-type=static, ipv6= and gateway6= need ipv6-type=static, track6-interface= and
 track6-prefix-id= need ipv6-type=track6 or idassoc6, dhcp-hostname= and dhcp-reject-from= need ipv4-type=dhcp
 (given or configured). A type other than static clears the static address and gateway of that family.
@@ -293,16 +295,26 @@ func interfaceAddressCheckChoice(arg string, value string, options []interfaces.
 
 // --- access protection
 
-// interfaceAddressProtect refuses to change the address settings of lan, wan and the interface the API connection
-// goes through: a wrong address, type, gateway, MTU, MAC or block rule on them can cut off the remote access, and an
-// assignment apply has no rollback. Every address field counts, none is harmless there (block-private alone
-// blocks a WAN reached from a private network)
-func interfaceAddressProtect(c *Context, api *interfaces.InterfacesApi, identifier string) error {
-	var guard, err = interfaceAssignmentGuardFor(c, api)
+// interfaceAddressConfirmSet warns before changing the address settings of lan, wan and the interface the API
+// connection goes through, unknown items fail before anything is asked
+func interfaceAddressConfirmSet(c *Context, args *Args) (string, error) {
+	var api, err = interfaceApi(c)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return guard.refuse(identifier, "change the address of")
+	var list, listErr = api.Addresses()
+	if listErr != nil {
+		return "", listErr
+	}
+	var address, selectErr = interfaceAddressSelect(c, list, args.String("item"))
+	if selectErr != nil {
+		return "", selectErr
+	}
+	var guard, guardErr = interfaceAssignmentGuardFor(c, api)
+	if guardErr != nil {
+		return "", guardErr
+	}
+	return guard.warning(address.Identifier, "changing the address settings of"), nil
 }
 
 // --- print and show
@@ -547,9 +559,6 @@ func interfaceAddressSet(c *Context, args *Args) error {
 	var address, selectErr = interfaceAddressSelect(c, list, args.String("item"))
 	if selectErr != nil {
 		return selectErr
-	}
-	if err := interfaceAddressProtect(c, api, address.Identifier); err != nil {
-		return err
 	}
 	var change = interfaceAddressChange(args)
 	if err := interfaceAddressCheckTypes(args, address, change); err != nil {
