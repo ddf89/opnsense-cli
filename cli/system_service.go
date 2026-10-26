@@ -10,7 +10,7 @@ import (
 // /system/service: System > Diagnostics > Services, every service configd knows with its state. Items are selected
 // by the # of print, the id (name, or name/instance for services with several instances like openvpn/1) or the
 // name. Locked services are always needed (configd, webgui, pf ...): like the web UI only restart is offered for
-// them. Restarting one that carries the management access needs confirm=yes
+// them. Stopping a service and restarting one that carries the management access ask for confirmation
 
 const (
 	systemServiceItemHelp    = "the #, id (name or name/instance) or name of the service"
@@ -46,13 +46,14 @@ func init() {
 		&Command{Name: "stop", Help: "stop a service",
 			Long: `Locked services (configd, webgui, pf, routing, ...) can not be stopped, only restarted. Does nothing for a
 service that is not running.`,
-			Args: []Arg{item}, Confirm: systemServiceStopWarning, Run: systemServiceStop},
+			ConfirmHelp: "Asks for confirmation before stopping a running service: its clients lose it until it is started again.",
+			ConfirmIf:   systemServiceConfirmStop,
+			Args:        []Arg{item}, Run: systemServiceStop},
 		&Command{Name: "restart", Help: "restart a service (starts it when it is stopped)",
-			Long: `Restarting webgui, configd, openssh, pf or routing interrupts the management access or the traffic for a
-moment, it needs confirm=yes.`,
-			Args: []Arg{item, {Name: "confirm", Type: Bool,
-				Help: "needed to restart webgui, configd, openssh, pf or routing"}},
-			Run: systemServiceRestart},
+			ConfirmHelp: "Asks for confirmation before restarting webgui, configd, openssh, pf or routing: that interrupts " +
+				"the management access or the traffic for a moment.",
+			ConfirmIf: systemServiceConfirmRestart,
+			Args:      []Arg{item}, Run: systemServiceRestart},
 	)
 }
 
@@ -202,6 +203,29 @@ func systemServiceStart(c *Context, args *Args) error {
 	return nil
 }
 
+// systemServiceConfirmStop warns before stopping a running service; a locked one fails before the question
+func systemServiceConfirmStop(c *Context, args *Args) (string, error) {
+	var api, err = systemServiceApi(c)
+	if err != nil {
+		return "", err
+	}
+	var service, selectErr = systemServiceSelect(c, api, args.String("item"))
+	if selectErr != nil {
+		return "", selectErr
+	}
+	if service.Locked {
+		return "", systemServiceLockedError(service)
+	}
+	if !service.Running {
+		return "", nil
+	}
+	return systemServiceStopWarning, nil
+}
+
+func systemServiceLockedError(service system.CoreService) error {
+	return fmt.Errorf("service %s is locked (the system needs it), it can only be restarted", service.Id)
+}
+
 func systemServiceStop(c *Context, args *Args) error {
 	var api, err = systemServiceApi(c)
 	if err != nil {
@@ -212,7 +236,7 @@ func systemServiceStop(c *Context, args *Args) error {
 		return selectErr
 	}
 	if service.Locked {
-		return fmt.Errorf("service %s is locked (the system needs it), it can only be restarted", service.Id)
+		return systemServiceLockedError(service)
 	}
 	if !service.Running {
 		c.Infof("service %s is not running", service.Id)
@@ -225,6 +249,22 @@ func systemServiceStop(c *Context, args *Args) error {
 	return nil
 }
 
+// systemServiceConfirmRestart warns before restarting a service that carries the management access or all traffic
+func systemServiceConfirmRestart(c *Context, args *Args) (string, error) {
+	var api, err = systemServiceApi(c)
+	if err != nil {
+		return "", err
+	}
+	var service, selectErr = systemServiceSelect(c, api, args.String("item"))
+	if selectErr != nil {
+		return "", selectErr
+	}
+	if impact, critical := systemServiceCritical[service.Name]; critical {
+		return fmt.Sprintf("Restarting %s interrupts %s.", service.Id, impact), nil
+	}
+	return "", nil
+}
+
 func systemServiceRestart(c *Context, args *Args) error {
 	var api, err = systemServiceApi(c)
 	if err != nil {
@@ -233,9 +273,6 @@ func systemServiceRestart(c *Context, args *Args) error {
 	var service, selectErr = systemServiceSelect(c, api, args.String("item"))
 	if selectErr != nil {
 		return selectErr
-	}
-	if impact, critical := systemServiceCritical[service.Name]; critical && !args.Bool("confirm") {
-		return fmt.Errorf("restarting %s interrupts %s. Not run: add confirm=yes to restart it", service.Id, impact)
 	}
 	if err := api.CoreServiceRestart(service.Id); err != nil {
 		return err

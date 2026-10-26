@@ -150,7 +150,16 @@ func TestSystemServiceStartStop(t *testing.T) {
 		var f, _ = newSystemServiceFake(t, false)
 		wantFailure(t, f.run("/system/service", "stop", "unbound"), "stops the service", "confirm=yes")
 		wantFailure(t, f.runScript("/system/service stop unbound\n"), "confirm=yes")
-		wantNoCalls(t, f)
+		wantNoMutations(t, f)
+		// unknown and locked services fail before the question, a stopped one asks nothing
+		wantFailure(t, f.run("/system/service", "stop", "nope"), "not found")
+		var locked = f.run("/system/service", "stop", "webgui")
+		wantFailure(t, locked, "locked")
+		wantNotContains(t, "stderr", locked.stderr, "confirm=yes")
+		var stopped = f.run("/system/service", "stop", "hostwatch")
+		wantExit(t, stopped, 0)
+		wantContains(t, "stderr", stopped.stderr, "not running")
+		wantNoMutations(t, f)
 	})
 	t.Run("stop", func(t *testing.T) {
 		t.Parallel()
@@ -194,7 +203,7 @@ func TestSystemServiceRestart(t *testing.T) {
 	t.Run("critical services need confirm", func(t *testing.T) {
 		t.Parallel()
 		var f, _ = newSystemServiceFake(t, false)
-		wantFailure(t, f.run("/system/service", "restart", "webgui"), "restarting webgui interrupts the web GUI", "confirm=yes")
+		wantFailure(t, f.run("/system/service", "restart", "webgui"), "Restarting webgui interrupts the web GUI", "confirm=yes")
 		wantFailure(t, f.run("/system/service", "restart", "configd", "confirm=no"), "confirm=yes")
 		wantFailure(t, f.runScript("/system/service\nrestart webgui\n"), "confirm=yes")
 		wantNoMutations(t, f)
