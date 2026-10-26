@@ -246,7 +246,7 @@ func TestInterfaceAssignmentSet(t *testing.T) {
 		t.Errorf("relink not staged: %v", row)
 	}
 
-	// the description and lock of lan/wan may change, their device and enabled state not
+	// the description and lock of lan/wan may change without confirmation, their device and enabled state only with
 	var lan = newInterfaceAssignmentFake(t)
 	wantExit(t, lan.run("/interface/assignment", "set", "lan", "description=inside"), 0)
 	wantOneMutation(t, lan.fakeOPN, "POST", interfaceAssignmentApi+"set_item/lan")
@@ -254,11 +254,15 @@ func TestInterfaceAssignmentSet(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"wan", "device=lo2"}, "refusing to change the device of wan: it is the WAN interface"},
-		{[]string{"lan", "device=lo2", "description=x"}, "refusing to change the device of lan"},
-		{[]string{"0", "disabled"}, "refusing to disable wan"},
-		{[]string{"mgmt", "device=lo2"}, "refusing to change the device of opt2: the API connection goes to its address 127.0.0.1"},
-		{[]string{"opt2", "disabled=yes"}, "refusing to disable opt2"},
+		{[]string{"wan", "device=lo2"}, "Changing the device of wan can cut off the access to the firewall (it is the WAN interface), " +
+			"there is no rollback. Not run: add confirm=yes"},
+		{[]string{"lan", "device=lo2", "description=x"}, "Changing the device of lan can cut off"},
+		{[]string{"lan", "device=lo2", "disabled"}, "Changing the device of and disabling lan can cut off"},
+		{[]string{"0", "disabled"}, "Disabling wan can cut off"},
+		{[]string{"mgmt", "device=lo2"}, "Changing the device of opt2 can cut off the access to the firewall " +
+			"(the API connection goes to its address 127.0.0.1), there is no rollback. Not run: add confirm=yes"},
+		{[]string{"opt2", "disabled=yes"}, "Disabling opt2 can cut off"},
+		{[]string{"opt9", "device=lo2"}, "not found"},
 		{[]string{"opt1", "device=vtnet0"}, "assigned already to lan"},
 		{[]string{"opt1", "description=mgmt"}, "taken by interface opt2"},
 		{[]string{"opt1"}, "nothing to change"},
@@ -270,7 +274,20 @@ func TestInterfaceAssignmentSet(t *testing.T) {
 		wantContains(t, "stderr", r.stderr, tc.want)
 		wantNoMutations(t, refused.fakeOPN)
 	}
-	// the same device is not a relink, enabling is never refused
+	// confirmed: sent like for any other interface
+	for _, tc := range []struct {
+		args []string
+		path string
+		body map[string]any
+	}{
+		{[]string{"wan", "device=lo2", "confirm=yes"}, "set_item/wan", map[string]any{"if": "lo2"}},
+		{[]string{"mgmt", "disabled", "confirm"}, "set_item/opt2", map[string]any{"enable": "0"}},
+	} {
+		var confirmed = newInterfaceAssignmentFake(t)
+		wantExit(t, confirmed.run(append([]string{"/interface/assignment", "set"}, tc.args...)...), 0)
+		wantJSON(t, wantOneMutation(t, confirmed.fakeOPN, "POST", interfaceAssignmentApi+tc.path), map[string]any{"interface": tc.body})
+	}
+	// the same device is not a relink, enabling never asks
 	var same = newInterfaceAssignmentFake(t)
 	wantExit(t, same.run("/interface/assignment", "set", "wan", "device=vtnet1", "disabled=no", "description=outside"), 0)
 	wantOneMutation(t, same.fakeOPN, "POST", interfaceAssignmentApi+"set_item/wan")
@@ -291,20 +308,24 @@ func TestInterfaceAssignmentEnableDisable(t *testing.T) {
 	wantJSON(t, wantOneMutation(t, enable.fakeOPN, "POST", interfaceAssignmentApi+"set_item/wan"), map[string]any{"interface": map[string]any{"enable": "1"}})
 	for _, selector := range []string{"wan", "lan", "mgmt"} {
 		var refused = newInterfaceAssignmentFake(t)
-		wantFailure(t, refused.run("/interface/assignment", "disable", selector), "refusing to disable", "cut off the access")
+		wantFailure(t, refused.run("/interface/assignment", "disable", selector), "Disabling", "cut off the access", "confirm=yes")
 		wantNoMutations(t, refused.fakeOPN)
 	}
+	var confirmed = newInterfaceAssignmentFake(t)
+	wantExit(t, confirmed.run("/interface/assignment", "disable", "lan", "confirm=yes"), 0)
+	wantJSON(t, wantOneMutation(t, confirmed.fakeOPN, "POST", interfaceAssignmentApi+"set_item/lan"), map[string]any{"interface": map[string]any{"enable": "0"}})
+	wantFailure(t, newInterfaceAssignmentFake(t).run("/interface/assignment", "disable", "opt9"), "not found")
 }
 
 func TestInterfaceAssignmentRemove(t *testing.T) {
 	t.Parallel()
-	// dangerous: without confirm=yes not even the list is read
-	var unconfirmed = newInterfaceAssignmentFake(t)
-	wantFailure(t, unconfirmed.run("/interface/assignment", "remove", "opt2"), "firewall and NAT rules", "confirm=yes")
-	wantNoCalls(t, unconfirmed.fakeOPN)
-
+	// always dangerous: nothing changed without confirm=yes
 	var plain = newInterfaceAssignmentFake(t, interfaceAssignmentRow("wan", "", "vtnet1", nil),
 		interfaceAssignmentRow("opt4", "spare", "lo2", nil))
+	var unconfirmed = plain.run("/interface/assignment", "remove", "spare")
+	wantFailure(t, unconfirmed, "This unassigns the interface", "firewall and NAT rules", "confirm=yes")
+	wantNotContains(t, "stderr", unconfirmed.stderr, "cut off")
+	wantNoMutations(t, plain.fakeOPN)
 	var r = plain.run("/interface/assignment", "remove", "spare", "confirm=yes")
 	wantExit(t, r, 0)
 	if r.stdout != "" {
@@ -312,20 +333,33 @@ func TestInterfaceAssignmentRemove(t *testing.T) {
 	}
 	wantOneMutation(t, plain.fakeOPN, "POST", interfaceAssignmentApi+"del_item/opt4")
 
+	// protected ones warn first; locked and unknown ones fail before asking
 	for _, tc := range []struct {
 		selector string
 		want     string
 	}{
-		{"wan", "refusing to remove wan: it is the WAN interface"},
-		{"lan", "refusing to remove lan"},
-		{"mgmt", "refusing to remove opt2: the API connection"},
+		{"wan", "Removing wan can cut off the access to the firewall (it is the WAN interface), there is no rollback. This unassigns"},
+		{"lan", "Removing lan can cut off"},
+		{"mgmt", "Removing opt2 can cut off the access to the firewall (the API connection"},
 		{"opt1", "interface opt1 is locked, unlock it first with: set opt1 locked=no"},
 		{"opt9", "not found"},
 	} {
 		var refused = newInterfaceAssignmentFake(t)
-		wantFailure(t, refused.run("/interface/assignment", "remove", tc.selector, "confirm=yes"), tc.want)
+		var r = refused.run("/interface/assignment", "remove", tc.selector)
+		wantFailure(t, r, tc.want)
+		if strings.Contains(tc.want, "cut off") {
+			wantContains(t, "stderr", r.stderr, "confirm=yes")
+		} else {
+			wantNotContains(t, "stderr", r.stderr, "confirm=yes")
+		}
 		wantNoMutations(t, refused.fakeOPN)
 	}
+	var locked = newInterfaceAssignmentFake(t)
+	wantFailure(t, locked.run("/interface/assignment", "remove", "opt1", "confirm=yes"), "opt1 is locked")
+	wantNoMutations(t, locked.fakeOPN)
+	var protected = newInterfaceAssignmentFake(t)
+	wantExit(t, protected.run("/interface/assignment", "remove", "lan", "confirm=yes"), 0)
+	wantOneMutation(t, protected.fakeOPN, "POST", interfaceAssignmentApi+"del_item/lan")
 
 	var inUse = newInterfaceAssignmentFake(t, interfaceAssignmentRow("opt4", "spare", "lo2", nil))
 	inUse.on("POST", interfaceAssignmentApi+"del_item/opt4", 500,
@@ -335,18 +369,24 @@ func TestInterfaceAssignmentRemove(t *testing.T) {
 
 func TestInterfaceAssignmentApply(t *testing.T) {
 	t.Parallel()
-	// dangerous: without confirm=yes nothing is sent
+	// dangerous: without confirm=yes nothing is changed
 	var unconfirmed = newInterfaceAssignmentFake(t)
+	unconfirmed.rows[2]["pending_action"] = "relink"
 	unconfirmed.pending = true
-	wantFailure(t, unconfirmed.run("/interface/assignment", "apply"), "firewall rules are reloaded", "confirm=yes")
-	wantNoCalls(t, unconfirmed.fakeOPN)
+	var refusedRun = unconfirmed.run("/interface/assignment", "apply")
+	wantFailure(t, refusedRun, "This applies all staged assignment changes", "firewall rules are reloaded", "confirm=yes")
+	wantNotContains(t, "stderr", refusedRun.stderr, "cut off")
+	wantNoMutations(t, unconfirmed.fakeOPN)
 
-	// nothing staged: no reconfigure (it would reload DHCP, DNS and the firewall for nothing)
-	var nothing = newInterfaceAssignmentFake(t)
-	var r = nothing.run("/interface/assignment", "apply", "confirm=yes")
-	wantExit(t, r, 0)
-	wantContains(t, "stderr", r.stderr, "nothing to apply")
-	wantNoMutations(t, nothing.fakeOPN)
+	// nothing staged: no question and no reconfigure (it would reload DHCP, DNS and the firewall for nothing)
+	for _, args := range [][]string{{"apply"}, {"apply", "confirm=yes"}} {
+		var nothing = newInterfaceAssignmentFake(t)
+		var r = nothing.run(append([]string{"/interface/assignment"}, args...)...)
+		wantExit(t, r, 0)
+		wantContains(t, "stderr", r.stderr, "nothing to apply")
+		wantNoMutations(t, nothing.fakeOPN)
+	}
+	var r runResult
 
 	var staged = newInterfaceAssignmentFake(t)
 	staged.rows[2]["pending_action"] = "relink"
@@ -361,39 +401,67 @@ func TestInterfaceAssignmentApply(t *testing.T) {
 	failing.on("POST", interfaceAssignmentApplyPath, 200, `{"status":"failed"}`)
 	wantFailure(t, failing.run("/interface/assignment", "apply", "confirm=yes"), "reconfigure failed")
 
-	// a staged change of lan, wan or the access interface (made elsewhere) is not applied from here
+	// a staged change of lan, wan or the access interface (also one made elsewhere) warns first
 	for _, tc := range []struct {
 		identifier string
 		want       string
 	}{
-		{"wan", "refusing to apply the staged change (update) of wan"},
-		{"lan", "refusing to apply the staged change (update) of lan"},
-		{"opt2", "refusing to apply the staged change (update) of opt2: the API connection"},
+		{"wan", "Applying the staged change (update) of wan can cut off the access to the firewall (it is the WAN interface), " +
+			"there is no rollback. This applies all staged"},
+		{"lan", "Applying the staged change (update) of lan can cut off"},
+		{"opt2", "Applying the staged change (update) of opt2 can cut off the access to the firewall (the API connection"},
 	} {
-		var refused = newInterfaceAssignmentFake(t)
-		for _, row := range refused.rows {
-			if row["identifier"] == tc.identifier {
-				row["pending_action"] = "update"
+		var staged = func() *interfaceAssignmentFake {
+			var f = newInterfaceAssignmentFake(t)
+			for _, row := range f.rows {
+				if row["identifier"] == tc.identifier {
+					row["pending_action"] = "update"
+				}
 			}
+			f.pending = true
+			return f
 		}
-		refused.pending = true
-		wantFailure(t, refused.run("/interface/assignment", "apply", "confirm=yes"), tc.want)
+		var refused = staged()
+		wantFailure(t, refused.run("/interface/assignment", "apply"), tc.want, "confirm=yes")
 		wantNoMutations(t, refused.fakeOPN)
+		var confirmed = staged()
+		wantExit(t, confirmed.run("/interface/assignment", "apply", "confirm=yes"), 0)
+		wantOneMutation(t, confirmed.fakeOPN, "POST", interfaceAssignmentApplyPath)
 	}
 
 	// lan staged for removal: configured (overview) but no longer listed
 	var removed = newInterfaceAssignmentFake(t, interfaceAssignmentRow("wan", "", "vtnet1", nil),
 		interfaceAssignmentRow("opt1", "guests", "vlan01", nil), interfaceAssignmentRow("opt2", "mgmt", "lo1", nil))
 	removed.pending = true
-	wantFailure(t, removed.run("/interface/assignment", "apply", "confirm=yes"), "refusing to apply the staged removal of lan")
+	wantFailure(t, removed.run("/interface/assignment", "apply"), "Applying the staged removal of lan can cut off", "confirm=yes")
 	wantNoMutations(t, removed.fakeOPN)
 
-	// the access interface can not be told: lan and wan stay protected
+	// the access interface can not be told: no question without knowing what to warn about, confirm=yes applies
 	var unknown = newInterfaceAssignmentFake(t)
 	unknown.on("GET", interfaceOverviewPath, 500, `{"errorMessage":"boom"}`)
 	unknown.pending = true
-	wantFailure(t, unknown.run("/interface/assignment", "apply", "confirm=yes"), "cannot check which interface the API connection uses")
+	wantFailure(t, unknown.run("/interface/assignment", "apply"), "cannot check which interface the API connection uses")
 	wantNoMutations(t, unknown.fakeOPN)
+	wantExit(t, unknown.run("/interface/assignment", "apply", "confirm=yes"), 0)
+	wantOneMutation(t, unknown.fakeOPN, "POST", interfaceAssignmentApplyPath)
+}
+
+func TestInterfaceAssignmentGuard(t *testing.T) {
+	t.Parallel()
+	var guard = interfaceAssignmentGuard{protected: map[string]string{"wan": "it is the WAN interface"}}
+	if got, want := guard.warning("wan", "changing the device of"),
+		"Changing the device of wan can cut off the access to the firewall (it is the WAN interface), there is no rollback."; got != want {
+		t.Errorf("warning:\n got  %q\n want %q", got, want)
+	}
+	if got := guard.warning("opt1", "disabling"); got != "" {
+		t.Errorf("unprotected warning: %q", got)
+	}
+	if err := guard.refuse("wan", "disable"); err == nil || !strings.Contains(err.Error(), "refusing to disable wan: it is the WAN interface") {
+		t.Errorf("refuse: %v", err)
+	}
+	if err := guard.refuse("opt1", "disable"); err != nil {
+		t.Errorf("unprotected refuse: %v", err)
+	}
 }
 
 func TestInterfaceAssignmentHelp(t *testing.T) {
@@ -402,5 +470,8 @@ func TestInterfaceAssignmentHelp(t *testing.T) {
 	var r = f.run("/interface/assignment", "?")
 	wantExit(t, r, 0)
 	wantContains(t, "stdout", r.stdout, "print", "show", "add", "set", "remove", "enable", "disable", "apply")
+	wantContains(t, "stdout", f.run("/interface/assignment", "set", "?").stdout, "Asks for confirmation before changing the device of",
+		"With confirm=yes it runs without asking", "confirm[=yes|no]")
+	wantContains(t, "stdout", f.run("/interface/assignment", "apply", "?").stdout, "Asks for confirmation when changes are staged")
 	wantNoCalls(t, f)
 }

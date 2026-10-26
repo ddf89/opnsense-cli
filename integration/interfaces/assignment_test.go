@@ -292,9 +292,9 @@ func TestAssignmentLifecycle(t *testing.T) {
 	requireContains(t, printed, printed.stdout, identifier, renamed, device, "PENDING", "update")
 	requireContains(t, printed, printed.stderr, "apply")
 
-	// remove: confirmation, then the lock (checked by the CLI, and by OPNsense)
-	var unconfirmed = mustFailOpn(t, "/interface/assignment", "remove", identifier)
-	requireContains(t, unconfirmed, unconfirmed.stderr, "confirm=yes")
+	// remove: the lock is checked before the confirmation is asked (by the CLI, and by OPNsense)
+	var lockedUnconfirmed = mustFailOpn(t, "/interface/assignment", "remove", identifier)
+	requireContains(t, lockedUnconfirmed, lockedUnconfirmed.stderr, "locked")
 	var locked = mustFailOpn(t, "/interface/assignment", "remove", identifier, "confirm=yes")
 	requireContains(t, locked, locked.stderr, "locked")
 	if err := ifs.AssignmentRemove(identifier); err == nil || !strings.Contains(err.Error(), "locked") {
@@ -347,6 +347,8 @@ func TestAssignmentLifecycle(t *testing.T) {
 
 	// unassign
 	mustOpn(t, "/interface/assignment", "set", identifier, "locked=no")
+	var unconfirmed = mustFailOpn(t, "/interface/assignment", "remove", identifier)
+	requireContains(t, unconfirmed, unconfirmed.stderr, "This unassigns the interface", "confirm=yes")
 	mustOpn(t, "/interface/assignment", "remove", identifier, "confirm=yes")
 	if _, err := ifs.AssignmentGet(identifier); !api.IsNotFound(err) {
 		t.Errorf("a staged removal is not listed: %v", err)
