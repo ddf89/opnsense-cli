@@ -60,7 +60,9 @@ const (
 	filterTestUuid  = "d621e174-154f-4ebb-9465-6e2fac4b2bcb"
 	filterTestUuid2 = "10adf92d-0e07-4c4d-bd0e-76e0938214f2"
 	filterTestAuto  = "02f4bab031b57d1e30553ce08e0ec131"
-	filterBase      = "/api/firewall/filter/"
+	// filterTestUnknown is a well-formed uuid no fake knows
+	filterTestUnknown = "6c0e4b1c-9b1e-4f43-a0a5-5d3a0c2f7e11"
+	filterBase        = "/api/firewall/filter/"
 )
 
 // filterTestAutoRow is an automatic rule as search_rule returns it in 26.7
@@ -259,6 +261,10 @@ func TestFilterRuleRemoveToggleLogMove(t *testing.T) {
 			return filterOk(map[string]string{"status": "ok"})
 		case filterBase + "toggle_rule_log/" + filterTestUuid2 + "/0":
 			return filterTestAnswer{Status: 500, Body: map[string]string{"errorMessage": "Rule not found", "errorTitle": ""}}
+		case filterBase + "search_rule":
+			return filterOk(filterTestRows(filterTestAutoRow, filterTestMvcRow))
+		case filterBase + "move_rule_before/" + filterTestUuid + "/" + filterTestUnknown:
+			return filterTestAnswer{Status: 500, Body: map[string]string{"errorMessage": "Unexpected error, check log for details"}}
 		case filterBase + "move_rule_before/" + filterTestUuid2 + "/" + filterTestUuid:
 			return filterTestAnswer{Status: 500, Body: map[string]string{"errorMessage": "Cannot move 'Interface Rule' before 'Floating Rule'.", "errorTitle": "Filter"}}
 		}
@@ -291,6 +297,9 @@ func TestFilterRuleRemoveToggleLogMove(t *testing.T) {
 	}
 	if err := api.FilterRuleMoveBefore(filterTestUuid, "00000000-0000-4000-8000-000000000000"); !coreapi.IsNotFound(err) {
 		t.Errorf("move before unknown: want NotFoundError, got %v", err)
+	}
+	if err := api.FilterRuleMoveBefore(filterTestUuid, filterTestUnknown); !coreapi.IsNotFound(err) || !strings.Contains(err.Error(), filterTestUnknown) {
+		t.Errorf("move before unknown (26.7.7 answer): want NotFoundError for the target, got %v", err)
 	}
 	var sent = len(*requests)
 	for _, refused := range []error{
