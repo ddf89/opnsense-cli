@@ -164,9 +164,28 @@ func TestSystemFirmwareUpdateAndPackages(t *testing.T) {
 	t.Run("lock", func(t *testing.T) {
 		t.Parallel()
 		var f = systemFirmwareFake(t, `{"status":"done","log":"***GOT REQUEST TO LOCK***\n***DONE***"}`)
+		var locked = strings.Replace(systemFirmwareInfo, `"locked":"N\/A","automatic":"1"`, `"locked":"1","automatic":"1"`, 1)
+		f.onFunc("GET", "/api/core/firmware/info", func(w http.ResponseWriter, _ *http.Request) {
+			var answer = systemFirmwareInfo
+			if len(f.mutations()) > 0 {
+				answer = locked
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(answer))
+		})
 		f.on("POST", "/api/core/firmware/lock/beep", 200, systemFirmwareStarted)
 		wantExit(t, f.run("/system/firmware/package", "lock", "0", "confirm=yes"), 0)
 		wantOneMutation(t, f, "POST", "/api/core/firmware/lock/beep")
+	})
+	t.Run("a refused install fails with the reason of the log", func(t *testing.T) {
+		t.Parallel()
+		// 26.7 refuses plugin installs on an outdated base and still ends the log with ***DONE***
+		var f = systemFirmwareFake(t, `{"status":"done","log":"***GOT REQUEST TO INSTALL***\nCurrently running OPNsense 26.7 (amd64)\n`+
+			`Installation out of date. The update to opnsense-26.7.7 is required.\n***DONE***"}`)
+		f.on("POST", "/api/core/firmware/install/os-acme-client", 200, systemFirmwareStarted)
+		wantFailure(t, f.run("/system/firmware/plugin", "install", "os-acme-client", "confirm=yes"),
+			"the install of os-acme-client failed: Installation out of date. The update to opnsense-26.7.7 is required.")
+		wantOneMutation(t, f, "POST", "/api/core/firmware/install/os-acme-client")
 	})
 }
 
