@@ -22,6 +22,7 @@ terminal). With a command it runs that one command, e.g.
 Options:
   -v, --verbose   log every API request to stderr
   -h, --help      show this help and the top level menus
+      --version   show the version of opn
 `
 
 func init() {
@@ -62,6 +63,9 @@ func Main(argv []string, stdin *os.File, stdout *os.File, stderr *os.File) int {
 		case "-h", "--help":
 			_, _ = fmt.Fprint(stdout, usage+"\n")
 			session.printHelp(session.root, nil)
+			return 0
+		case "--version":
+			_, _ = fmt.Fprintln(stdout, versionString())
 			return 0
 		default:
 			_, _ = fmt.Fprintf(stderr, "error: unknown option %s\n\n%s", argv[0], usage)
