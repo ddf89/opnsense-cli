@@ -106,28 +106,3 @@ func TestOverviewReload(t *testing.T) {
 		t.Errorf("an empty identifier must fail before any call: %v", err)
 	}
 }
-
-func TestAssignments(t *testing.T) {
-	var api, requests = newTestApi(t, func(r testRequest) (int, string) {
-		return 200, `{"rows":[{"uuid":"wan","descr":"","%descr":"WAN","identifier":"wan","optgroup":"hardware","if":"vtnet1",` +
-			`"%if":"vtnet1 (52:54:00:12:34:57)","lock":"0"},{"uuid":"opt1","descr":"guests","identifier":"opt1","if":"vlan01","lock":"1"}]}`
-	})
-	var assignments, err = api.Assignments()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := (*requests)[0]; got.Method != "GET" || got.Path != "/api/interfaces/assignment/search_item" {
-		t.Errorf("unexpected request %+v", got)
-	}
-	if len(assignments) != 2 {
-		t.Fatalf("got %+v", assignments)
-	}
-	var wan = assignments[0]
-	if wan.Identifier != "wan" || wan.Description != "WAN" || wan.Device != "vtnet1" || wan.DeviceText != "vtnet1 (52:54:00:12:34:57)" ||
-		wan.Locked || wan.Group != "hardware" {
-		t.Errorf("unexpected wan %+v", wan)
-	}
-	if opt := assignments[1]; opt.Description != "guests" || !opt.Locked || opt.Device != "vlan01" {
-		t.Errorf("unexpected opt1 %+v", opt)
-	}
-}

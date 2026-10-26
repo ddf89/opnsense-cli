@@ -1,6 +1,6 @@
 // Package interfaces wraps the OPNsense API behind the Interfaces menu (api/interfaces/*): the devices (VLAN,
 // LAGG, bridge, GIF, GRE, loopback, VXLAN), virtual IPs, static ARP/NDP neighbors, the global interface settings,
-// the interface overview and a read-only view of the interface assignments
+// the interface overview and the interface assignments
 package interfaces
 
 import (
