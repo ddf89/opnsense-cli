@@ -1,0 +1,46 @@
+# Builds opn for every pushed tag and publishes the binaries as a GitHub release named like the tag.
+# The tag name is the version compiled into the binary ("opn version"), e.g. git tag 0.3.0 && git push origin 0.3.0
+name: release
+
+on:
+  push:
+    tags: ['*'] # any tag, the existing tags have no v prefix (0.2.1)
+
+permissions:
+  contents: write # create the release and upload its assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        # same naming and -ldflags as the Makefile's cross_build (darwin is published as macos)
+        run: |
+          mkdir -p dist
+          for platform in linux/amd64 linux/arm64 darwin/arm64; do
+            os=${platform%/*}; arch=${platform#*/}
+            name=$os; [ "$os" = darwin ] && name=macos
+            echo "building dist/opn-$name-$arch"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-X opnsense-cli/cli.Version=$VERSION" -o "dist/opn-$name-$arch" .
+          done
+          (cd dist && sha256sum opn-* > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Check version
+        run: test "$(./dist/opn-linux-amd64 version)" = "$VERSION"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$VERSION" dist/* --verify-tag --title "$VERSION" --generate-notes

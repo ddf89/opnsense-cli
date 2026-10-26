@@ -95,6 +95,9 @@ hint, and the exit code is 1:
     $ OPN_APISECRET=wrong opn /check
     error: auth: authentication failed (check OPN_APIKEY and OPN_APISECRET, and that the key's user is not disabled)
 
+`opn version` (or `opn --version`) prints the version of opn, the release tag it was built from, without
+contacting the firewall; `version detail` adds the Go version and platform.
+
 `opn -v ...` logs every API request (method, URL, status, duration) to stderr, credentials are never logged.
 `opn -h` and `opn <path> ?` show the help. Errors are printed as `error: ...` on stderr with exit code 1
 (2 for an unknown option).
@@ -220,7 +223,7 @@ hint, and the exit code is 1:
 | `/tool/sniffer` | `print start stop view download remove` | packet capture: `start interface= host= port= protocol= count= duration=`, `download <capture> file= overwrite` (pcap files in a zip) |
 | `/tool/netflow` | `print set status reconfigure reset-data` | NetFlow: `interfaces= egress-only= version= targets= collect`; `/tool/netflow/cache print` |
 | `/tool/insight` | `print history export` | NetFlow data: `print by=interface\|protocol\|service\|talker\|flow from= to= measure= limit=`, `history`, CSV `export` |
-| `/` | `import check` | `import file`; `check` tests the API connection (see below) |
+| `/` | `import check version` | `import file`; `check` tests the API connection, `version` shows opn's version (see below) |
 
 `help` and `exit` work in every menu. `opn <menu> ?` and `opn <menu> <command> ?` list everything with its help.
 
@@ -450,6 +453,10 @@ sourced by your shell) and `~/.vscopnsense-env` (`OPN_APIKEY` / `OPN_APISECRET`)
     # building, binaries for linux, macos, windows (amd64 / arm64) end up in dist/
     make build
     make release VERSION=1.2.3
+
+    # publishing a release: pushing a tag runs .github/workflows/release.yml, which tests, builds linux amd64/arm64
+    # and macos arm64 with the tag as version and creates a GitHub release of the same name with the binaries
+    git tag 1.2.3 && git push origin 1.2.3
 
 The `http/` folder contains requests for the IntelliJ / VSCode REST clients to explore the API by hand.
 
