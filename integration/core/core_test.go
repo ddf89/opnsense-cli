@@ -64,7 +64,10 @@ func TestCliService(t *testing.T) {
 	requireContains(t, result, result.stdout, "locked:       yes", "status:       running")
 	mustFailOpn(t, "locked", "/system/service", "stop", "webgui", "confirm=yes")
 	mustFailOpn(t, "confirm=yes", "/system/service", "restart", "configd")
-	mustFailOpn(t, "confirm=yes", "/system/service", "stop", "unbound")
+	// stop asks (and so needs confirm=yes here) only for a running service
+	if unbound := runOpn(t, "/system/service", "show", "unbound"); unbound.exitCode == 0 && strings.Contains(unbound.stdout, "status:       running") {
+		mustFailOpn(t, "confirm=yes", "/system/service", "stop", "unbound")
+	}
 	mustFailOpn(t, "not found", "/system/service", "start", "a9-core-no-such-service")
 	if runOpn(t, "/system/service", "show", "hostwatch").exitCode == 0 {
 		result = mustOpn(t, "/system/service", "show", "hostwatch")
