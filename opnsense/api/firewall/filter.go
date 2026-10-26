@@ -616,7 +616,17 @@ func (opn *FirewallApi) FilterRuleMoveBefore(uuid string, target string) error {
 	if strings.EqualFold(uuid, target) {
 		return errors.New("a rule can not be moved before itself")
 	}
-	return opn.filterStatusOk(fmt.Sprintf("%s/%s/%s", opn.filterEndpoint("move_rule_before"), uuid, target), uuid)
+	var err = opn.filterStatusOk(fmt.Sprintf("%s/%s/%s", opn.filterEndpoint("move_rule_before"), uuid, target), uuid)
+	if err != nil && strings.HasPrefix(err.Error(), "Unexpected error") {
+		// 26.7.7 answers an unknown rule with HTTP 500 "Unexpected error, check log for details" (26.7: "Either
+		// source or destination is not a rule managed with this component"), look up which one is missing
+		for _, id := range []string{uuid, target} {
+			if _, getErr := opn.FilterRuleGet(id); coreapi.IsNotFound(getErr) {
+				return getErr
+			}
+		}
+	}
+	return err
 }
 
 // filterStatusOk POSTs to endpoint and expects {"status":"ok"}
