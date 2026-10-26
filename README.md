@@ -173,6 +173,7 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/firewall/nat/source/mode` | `print set` | `set mode=automatic\|hybrid\|manual\|disabled` |
 | `/firewall/alias` | `print show add set remove enable disable apply export import categories countries` | `name= type=host\|network\|port\|url\|urltable\|geoip\|networkgroup\|mac\|asn\|dynipv6host\|authgroup\|external content= categories= updatefreq= description= disabled`; items: the alias name. Built-in aliases are read-only |
 | `/firewall/alias/table` | `print add remove flush find update-bogons` | the live pf tables: `print [alias]`, `add <alias> address=`, `find <address>` |
+| `/firewall/alias/geoip` | `print set update` | GeoIP source of geoip aliases: `set url=` (`url=` clears; masked in print/json, used after `/firewall/alias apply`), `update` downloads the database |
 | `/firewall/group` | `print show add set remove apply` | interface groups: `name= members= sequence= no-group description=` |
 | `/firewall/category` | `print show add set remove` | `name= color=` |
 | `/firewall/shaper/pipe`, `queue`, `rule` | `print show add set remove enable disable` | pipe: `bandwidth=100Mbit scheduler= mask= delay= codel pie description=`; queue: `pipe= weight=`; rule: `interface= protocol= source= destination= direction= target=<pipe or queue>` |
@@ -275,7 +276,7 @@ Changes are only saved to the configuration. Apply them like in the web UI:
 | trust settings | `/system/trust/settings apply` (CAs, certificates and CRLs apply immediately) |
 | OpenVPN instances, static keys | `/vpn/openvpn/instance apply` (client overrides apply on the next connect) |
 | filter rules, NAT | `/firewall/rule apply` or `/firewall/nat/<kind> apply` (both reload the whole ruleset, see below) |
-| aliases, interface groups | `/firewall/alias apply`, `/firewall/group apply` |
+| aliases, interface groups | `/firewall/alias apply` (also activates a changed `/firewall/alias/geoip` URL), `/firewall/group apply` |
 | shaper | `/firewall/shaper reconfigure` |
 | Unbound settings, ACLs, forwards | `/unbound/service reconfigure general` (blocklists: `/unbound/blocklist update`) |
 | Dnsmasq settings, DHCP ranges, options, tags, boot | `/dnsmasq/service reconfigure` |
