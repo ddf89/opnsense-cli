@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"reflect"
 	"regexp"
@@ -232,8 +233,9 @@ func TestDnsmasqHostSet(t *testing.T) {
 			lookups: 2, wantUuid: "u-web-nodomain", wantFields: map[string]any{"comments": "c"}},
 		{name: "by unique hostname", args: []string{"myweb", "comments=c"},
 			lookups: 2, wantUuid: "u-myweb", wantFields: map[string]any{"comments": "c"}},
-		{name: "by index without print is the list position", args: []string{"1", "comments=c"},
-			lookups: 2, wantUuid: "u-dup1", wantFields: map[string]any{"comments": "c"}},
+		// sorted by host, then domain (empty last): dup, dup, invalid, myweb, probe, web.example.lan, ...
+		{name: "by index without print counts in host name order", args: []string{"5", "comments=c"},
+			lookups: 2, wantUuid: "u-web", wantFields: map[string]any{"comments": "c"}},
 		{name: "empty values clear fields", args: []string{"u-web", "cname=", "ip=", "description="},
 			lookups: 2, wantUuid: "u-web", wantFields: map[string]any{"cnames": "", "ip": "", "descr": ""}},
 		{name: "booleans", args: []string{"u-web", "local", "ignore=no"},
@@ -326,7 +328,7 @@ func TestDnsmasqHostRemove(t *testing.T) {
 		{name: "by FQDN", args: []string{"WEB.example.lan"}, wantDel: "u-web"},
 		{name: "by named item", args: []string{"item=u-webserver"}, wantDel: "u-webserver"},
 		{name: "by host without domain", args: []string{"web"}, wantDel: "u-web-nodomain"},
-		{name: "by index", args: []string{"0"}, wantDel: "u-web"},
+		{name: "by index in host name order", args: []string{"5"}, wantDel: "u-web"},
 		{name: "host substring is no match", args: []string{"webs.example.lan"}, wantErr: []string{"not found", "webs.example.lan"}},
 		{name: "ambiguous asks for # or uuid", args: []string{"dup.example.lan"}, wantErr: []string{"u-dup1", "u-dup2", "uuid"}},
 		{name: "unknown uuid", args: []string{"u-gone"}, wantErr: []string{"not found", "u-gone"}},
@@ -417,8 +419,8 @@ func TestDnsmasqHostPrint(t *testing.T) {
 	wantExit(t, r, 0)
 	var want = [][]string{
 		{"#", "HOST", "DOMAIN", "IP", "HWADDR", "CNAME", "DESCRIPTION"},
-		{"0", "probe", "example.lan", "10.1.1.1, fd00::1", "aa:bb:cc:dd:ee:ff", "alias1.example.lan, alias2.example.lan", "probe host"},
-		{"1", "bare", "-", "-", "-", "-", "-"},
+		{"0", "bare", "-", "-", "-", "-", "-"},
+		{"1", "probe", "example.lan", "10.1.1.1, fd00::1", "aa:bb:cc:dd:ee:ff", "alias1.example.lan, alias2.example.lan", "probe host"},
 	}
 	if got := dnsmasqTableRows(r.stdout); !reflect.DeepEqual(got, want) {
 		t.Errorf("table:\n got  %q\n want %q\n%s", got, want, r.stdout)
@@ -432,7 +434,10 @@ func TestDnsmasqHostPrint(t *testing.T) {
 
 	r = f.run("/dnsmasq/host", "print", "detail")
 	wantExit(t, r, 0)
-	wantContains(t, "detail", r.stdout, "0\n", "  uuid:", "u-probe", "1\n", "u-bare", "  hwaddr:", "  lease-time:")
+	wantContains(t, "detail", r.stdout, "0\n", "  uuid:", "u-bare", "1\n", "u-probe", "  hwaddr:", "  lease-time:")
+	if strings.Index(r.stdout, "u-bare") > strings.Index(r.stdout, "u-probe") {
+		t.Errorf("detail: want bare before probe:\n%s", r.stdout)
+	}
 
 	r = f.run("/dnsmasq/host", "print", "json")
 	wantExit(t, r, 0)
@@ -440,13 +445,75 @@ func TestDnsmasqHostPrint(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("json: want 2 lines:\n%s", r.stdout)
 	}
-	var first map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil || first["uuid"] != "u-probe" || first["cnames"] != "alias1.example.lan,alias2.example.lan" {
-		t.Errorf("json: want the raw row, got %v (%v)", first, err)
+	var second map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil || second["uuid"] != "u-probe" || second["cnames"] != "alias1.example.lan,alias2.example.lan" {
+		t.Errorf("json: want the raw row of probe second (sorted like the table), got %v (%v)", second, err)
 	}
 
 	wantSearchPhrases(t, f, dnsmasqHostSearchPath, "", "BARE", "", "")
 	wantNoMutations(t, f)
+}
+
+func TestDnsmasqHostPrintSort(t *testing.T) {
+	t.Parallel()
+	// configured (API) order: host10, Alpha, host2, beta, nameless
+	var rows = []map[string]any{
+		dnsmasqHostRow(map[string]any{"uuid": "u-host10", "host": "host10", "domain": "b.lan", "ip": "fd00::10", "hwaddr": "", "descr": "ten"}),
+		dnsmasqHostRow(map[string]any{"uuid": "u-alpha", "host": "Alpha", "domain": "c.lan", "ip": "192.0.2.20,fd00::20", "hwaddr": "", "descr": ""}),
+		dnsmasqHostRow(map[string]any{"uuid": "u-host2", "host": "host2", "domain": "a.lan", "ip": "192.0.2.9", "hwaddr": "", "descr": "two"}),
+		dnsmasqHostRow(map[string]any{"uuid": "u-beta", "host": "beta", "domain": "", "ip": "", "hwaddr": "", "descr": "Beta"}),
+	}
+	var hosts = func(stdout string) []string {
+		var names []string
+		for _, row := range dnsmasqTableRows(stdout)[1:] {
+			names = append(names, row[1])
+		}
+		return names
+	}
+	for _, tc := range []struct {
+		sort string
+		want []string
+	}{
+		{"", []string{"Alpha", "beta", "host2", "host10"}},
+		{"host", []string{"Alpha", "beta", "host2", "host10"}},
+		{"config", []string{"host10", "Alpha", "host2", "beta"}},
+		{"domain", []string{"host2", "host10", "Alpha", "beta"}},
+		{"ip", []string{"host2", "Alpha", "host10", "beta"}},
+		{"description", []string{"beta", "host10", "host2", "Alpha"}},
+	} {
+		var f = newDnsmasqHostFake(t, rows...)
+		var args = []string{"/dnsmasq/host", "print"}
+		if tc.sort != "" {
+			args = append(args, "sort="+tc.sort)
+		}
+		var r = f.run(args...)
+		wantExit(t, r, 0)
+		if got := hosts(r.stdout); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("sort=%s: got %q, want %q\n%s", tc.sort, got, tc.want, r.stdout)
+		}
+	}
+	wantFailure(t, newDnsmasqHostFake(t, rows...).run("/dnsmasq/host", "print", "sort=uuid"), "sort")
+
+	// after a print sort=… in a script, # is the printed row; one-shot it counts in host name order
+	var script = newDnsmasqHostFake(t, rows...)
+	wantExit(t, script.runScript("/dnsmasq/host\nprint sort=config\nremove 0\n"), 0)
+	wantOneMutation(t, script, "POST", dnsmasqHostDelPath+"u-host10")
+	var oneShot = newDnsmasqHostFake(t, rows...)
+	wantExit(t, oneShot.run("/dnsmasq/host", "remove", "0"), 0)
+	wantOneMutation(t, oneShot, "POST", dnsmasqHostDelPath+"u-alpha")
+}
+
+func TestDnsmasqNaturalCompare(t *testing.T) {
+	t.Parallel()
+	var sorted = []string{"a", "A1", "a2", "a02b", "a10", "a10b", "B", "host9", "host10", "host10a", "host100", ""}
+	for i := range sorted {
+		for j := range sorted {
+			var got = dnsmasqNaturalCompare(sorted[i], sorted[j])
+			if want := cmp.Compare(i, j); got != want {
+				t.Errorf("compare(%q, %q) = %d, want %d", sorted[i], sorted[j], got, want)
+			}
+		}
+	}
 }
 
 func TestDnsmasqComplete(t *testing.T) {

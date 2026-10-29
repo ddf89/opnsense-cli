@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +45,48 @@ func dnsmasqSearch[T any](api *dnsmasq.DnsmasqApi, controller string, method str
 		}
 	}
 	return raws, items, nil
+}
+
+// dnsmasqNaturalCompare compares like OPNsense's grids (natural, case-insensitive): runs of digits compare by
+// value, so host2 comes before host10; empty strings come last
+func dnsmasqNaturalCompare(a string, b string) int {
+	switch {
+	case a == "" && b == "":
+		return 0
+	case a == "":
+		return 1
+	case b == "":
+		return -1
+	}
+	a, b = strings.ToLower(a), strings.ToLower(b)
+	for a != "" && b != "" {
+		var runA, restA = dnsmasqNaturalRun(a)
+		var runB, restB = dnsmasqNaturalRun(b)
+		var digitsA, digitsB = runA[0] >= '0' && runA[0] <= '9', runB[0] >= '0' && runB[0] <= '9'
+		if digitsA && digitsB {
+			var trimmedA, trimmedB = strings.TrimLeft(runA, "0"), strings.TrimLeft(runB, "0")
+			if c := cmp.Compare(len(trimmedA), len(trimmedB)); c != 0 {
+				return c
+			}
+			if c := strings.Compare(trimmedA, trimmedB); c != 0 {
+				return c
+			}
+		} else if c := strings.Compare(runA, runB); c != 0 {
+			return c
+		}
+		a, b = restA, restB
+	}
+	return cmp.Compare(len(a), len(b))
+}
+
+// dnsmasqNaturalRun splits s (not empty) into its leading run of digits or of other characters and the rest
+func dnsmasqNaturalRun(s string) (string, string) {
+	var digits = s[0] >= '0' && s[0] <= '9'
+	var end = 1
+	for end < len(s) && (s[end] >= '0' && s[end] <= '9') == digits {
+		end++
+	}
+	return s[:end], s[end:]
 }
 
 // dnsmasqPrintJSON writes the raw rows as ndjson

@@ -3,12 +3,19 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	coreapi "opnsense-cli/opnsense/api"
 	"opnsense-cli/opnsense/api/dnsmasq"
+	"slices"
 	"strings"
 )
 
-// /dnsmasq/host: host overrides and static DHCP reservations, natural key host + domain
+// /dnsmasq/host: host overrides and static DHCP reservations, natural key host + domain. print lists them by host
+// name (sort= picks another order, sort=config the configured one that dnsmasq's hosts file follows), a one-shot #
+// counts in host name order too
+
+// dnsmasqHostSorts are the orders of print: the column to sort by, config = the configured (API) order
+var dnsmasqHostSorts = []string{"host", "domain", "ip", "hwaddr", "description", "config"}
 
 func init() {
 	var menu = Root.Menu("dnsmasq/host")
@@ -16,11 +23,20 @@ func init() {
 	menu.Add(
 		&Command{
 			Name: "print",
-			Help: "list the host overrides",
+			Help: "list the host overrides, by host name",
+			Long: `Lists the hosts sorted by host name (then domain), numbers compare by value (host2 before host10) and case
+is ignored. sort= picks another column; ip sorts by the first address, IPv4 before IPv6. sort=config keeps the
+configured order, the order of dnsmasq's hosts file (OPNsense writes it in the order the hosts were added).
+A # without a print before it (one-shot calls) counts in host name order; after print sort=… in the shell or a
+script, # is the row of that print.
+
+  print sort=ip
+  print sort=config detail`,
 			Args: []Arg{
 				{Name: "detail", Type: Bool, Help: "show all fields of every host"},
 				{Name: "json", Type: Bool, Help: "one JSON object per line, as the API returns them"},
 				{Name: "search", Help: "only hosts where any field contains this text"},
+				{Name: "sort", Default: "host", Values: dnsmasqHostSorts, Help: "the order: by host (default), domain, ip, hwaddr, description, or config (the configured order)"},
 			},
 			Run: dnsmasqHostPrint,
 		},
@@ -141,6 +157,8 @@ func dnsmasqHostPrint(c *Context, args *Args) error {
 	if err != nil {
 		return err
 	}
+	var order = dnsmasqHostOrder(hosts, args.String("sort"))
+	raws, hosts = dnsmasqReorder(raws, order), dnsmasqReorder(hosts, order)
 	if args.Bool("json") {
 		return dnsmasqPrintJSON(c, raws)
 	}
@@ -165,6 +183,73 @@ func dnsmasqHostPrint(c *Context, args *Args) error {
 	}
 	c.Items([]string{"HOST", "DOMAIN", "IP", "HWADDR", "CNAME", "DESCRIPTION"}, rows, uuids)
 	return nil
+}
+
+// dnsmasqHostOrder returns the indexes of hosts in the order of sort (one of dnsmasqHostSorts). Ties keep the
+// configured order
+func dnsmasqHostOrder(hosts []dnsmasq.Host, sort string) []int {
+	var order = make([]int, len(hosts))
+	for i := range order {
+		order[i] = i
+	}
+	if sort == "config" {
+		return order
+	}
+	var byName = func(a, b dnsmasq.Host) int {
+		if c := dnsmasqNaturalCompare(a.Host, b.Host); c != 0 {
+			return c
+		}
+		return dnsmasqNaturalCompare(a.Domain, b.Domain)
+	}
+	slices.SortStableFunc(order, func(i, j int) int {
+		var a, b = hosts[i], hosts[j]
+		var c int
+		switch sort {
+		case "domain":
+			c = dnsmasqNaturalCompare(a.Domain, b.Domain)
+		case "ip":
+			c = dnsmasqCompareFirstIP(a.Ip, b.Ip)
+		case "hwaddr":
+			c = dnsmasqNaturalCompare(a.Hwaddr, b.Hwaddr)
+		case "description":
+			c = dnsmasqNaturalCompare(a.Description, b.Description)
+		}
+		if c != 0 {
+			return c
+		}
+		return byName(a, b)
+	})
+	return order
+}
+
+// dnsmasqReorder returns items in the order of the indexes
+func dnsmasqReorder[T any](items []T, order []int) []T {
+	var sorted = make([]T, len(order))
+	for i, index := range order {
+		sorted[i] = items[index]
+	}
+	return sorted
+}
+
+// dnsmasqCompareFirstIP compares the first addresses of two comma separated IP lists: IPv4 before IPv6, empty or
+// invalid ones last
+func dnsmasqCompareFirstIP(a string, b string) int {
+	var first = func(list string) (netip.Addr, bool) {
+		var head, _, _ = strings.Cut(list, ",")
+		var addr, err = netip.ParseAddr(strings.TrimSpace(head))
+		return addr.Unmap(), err == nil
+	}
+	var addrA, okA = first(a)
+	var addrB, okB = first(b)
+	switch {
+	case okA && okB:
+		return addrA.Compare(addrB)
+	case okA:
+		return -1
+	case okB:
+		return 1
+	}
+	return 0
 }
 
 // dnsmasqHostDetail are the fields of show and print detail, named like the arguments
@@ -194,6 +279,8 @@ func dnsmasqHostSelect(c *Context, api *dnsmasq.DnsmasqApi, selector string) (dn
 	if err != nil {
 		return dnsmasq.Host{}, nil, err
 	}
+	// a one-shot # counts like the default print
+	hosts = dnsmasqReorder(hosts, dnsmasqHostOrder(hosts, "host"))
 	var uuidOf = func(host dnsmasq.Host) string { return host.Uuid }
 	host, err := Select(c, selector, hosts, uuidOf, func(host dnsmasq.Host) []string { return []string{host.FQDN()} })
 	if coreapi.IsNotFound(err) && !dnsmasqIsIndex(selector) {

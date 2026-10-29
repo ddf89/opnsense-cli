@@ -115,7 +115,7 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/unbound/host-alias` | `print show add set remove enable disable` | aliases of host overrides: `host=<override> hostname= domain= description=` |
 | `/unbound/statistics` | `print queries history counters reset` | totals and top (blocked) domains `top=`, recent queries, unbound-control counters; needs `/unbound/settings set statistics=yes` |
 | `/unbound/diagnostics` | `cache infra local-zones local-data insecure` | dumps of the resolver state |
-| `/dnsmasq/host` | `print show add set remove` | `host= domain= ip= cname= alias= hwaddr= client-id= lease-time= local ignore description= comments=` (lists comma separated); items: `host.domain` or the hostname |
+| `/dnsmasq/host` | `print show add set remove` | `host= domain= ip= cname= alias= hwaddr= client-id= lease-time= local ignore description= comments=` (lists comma separated); items: `host.domain` or the hostname. `print` lists by host name, `sort=domain\|ip\|hwaddr\|description\|config` (config: the configured order of the hosts file); a one-shot `#` counts in host name order |
 | `/dnsmasq/domain` | `print show add set remove` | `domain= ip= port= source-ip= sequence= description=`; items: the domain |
 | `/dnsmasq/lease` | `print` | |
 | `/dnsmasq/service` | `status start stop restart reconfigure` | |

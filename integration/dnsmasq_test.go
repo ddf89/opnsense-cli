@@ -3,7 +3,9 @@
 package integration
 
 import (
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"opnsense-cli/opnsense/api/dnsmasq"
@@ -430,4 +432,58 @@ func TestDnsmasqHostResolves(t *testing.T) {
 		t.Fatalf("ServiceReconfigure: %v", err)
 	}
 	requireResolves(t, dnsmasqDnsPort, "resolve."+domain, "10.3.3.3")
+}
+
+// TestCliDnsmasqHostPrintSort checks the order of /dnsmasq/host print: by host name by default (natural, case
+// insensitive), the configured order with sort=config, and a one-shot # counting in host name order
+func TestCliDnsmasqHostPrintSort(t *testing.T) {
+	var dnsmasqApi = dnsmasqApi(t)
+	var domain = testDomain("ds")
+	// created (= configured order) not in name order
+	var uuids = map[string]string{}
+	for i, host := range []string{"host10", "Alpha", "host2", "beta"} {
+		uuids[host] = createDnsmasqHost(t, dnsmasqApi, dnsmasq.Host{Host: host, Domain: domain, Ip: "192.0.2." + strconv.Itoa(40-i),
+			Description: "a7 integration sort"})
+	}
+	var names = func(stdout string) []string {
+		var hosts []string
+		for _, line := range strings.Split(strings.TrimSpace(stdout), "\n")[1:] {
+			hosts = append(hosts, strings.Fields(line)[1])
+		}
+		return hosts
+	}
+	for _, tc := range []struct {
+		sort string
+		want []string
+	}{
+		{"", []string{"Alpha", "beta", "host2", "host10"}},
+		{"config", []string{"host10", "Alpha", "host2", "beta"}},
+		{"ip", []string{"beta", "host2", "Alpha", "host10"}},
+	} {
+		var args = []string{"/dnsmasq/host", "print", "search=" + domain}
+		if tc.sort != "" {
+			args = append(args, "sort="+tc.sort)
+		}
+		var r = mustOpn(t, args...)
+		if got := names(r.stdout); !slices.Equal(got, tc.want) {
+			t.Errorf("print sort=%q: got %q, want %q\n%s", tc.sort, got, tc.want, r.stdout)
+		}
+	}
+
+	// one-shot # counts in host name order over all hosts: show the # of Alpha's row in the unfiltered print
+	var all = mustOpn(t, "/dnsmasq/host", "print")
+	var index = ""
+	for _, line := range strings.Split(strings.TrimSpace(all.stdout), "\n")[1:] {
+		var fields = strings.Fields(line)
+		if len(fields) > 2 && fields[1] == "Alpha" && fields[2] == domain {
+			index = fields[0]
+		}
+	}
+	if index == "" {
+		t.Fatalf("Alpha.%s not in the print:\n%s", domain, all.stdout)
+	}
+	var shown = mustOpn(t, "/dnsmasq/host", "show", index)
+	if !strings.Contains(shown.stdout, uuids["Alpha"]) {
+		t.Errorf("show %s (one-shot #) must be Alpha.%s (%s):\n%s", index, domain, uuids["Alpha"], shown.stdout)
+	}
 }
