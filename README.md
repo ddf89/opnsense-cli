@@ -106,7 +106,7 @@ contacting the firewall; `version detail` adds the Go version and platform.
 
 | menu | commands | key arguments, items |
 |---|---|---|
-| `/unbound/host-override` | `print show add set remove enable disable` | `host= domain= rr=A\|AAAA\|MX\|TXT ip= mx= mx-priority= txtdata= ttl= ptr= description= disabled`; items: `host.domain`, `host.domain/RR` when the FQDN has several records |
+| `/unbound/host-override` | `print show add set remove enable disable export import` | `host= domain= rr=A\|AAAA\|MX\|TXT ip= mx= mx-priority= txtdata= ttl= ptr= description= disabled`; items: `host.domain`, `host.domain/RR` when the FQDN has several records. `export`/`import`: CSV like the GUI, `@uuid` first, matched by `@uuid` (needs an OPNsense newer than 26.7.7) |
 | `/unbound/service` | `status restart reconfigure` | |
 | `/unbound/settings`, `/unbound/advanced` | `print set` | General and Advanced pages: `enabled port= interface= dnssec dns64 register-dhcp ...`, `hide-version prefetch serve-expired ...` |
 | `/unbound/acl` | `print show add set remove enable disable default-action` | `name= action=allow\|deny\|refuse\|... networks= description= disabled`; items: the name |
@@ -115,7 +115,7 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/unbound/host-alias` | `print show add set remove enable disable` | aliases of host overrides: `host=<override> hostname= domain= description=` |
 | `/unbound/statistics` | `print queries history counters reset` | totals and top (blocked) domains `top=`, recent queries, unbound-control counters; needs `/unbound/settings set statistics=yes` |
 | `/unbound/diagnostics` | `cache infra local-zones local-data insecure` | dumps of the resolver state |
-| `/dnsmasq/host` | `print show add set remove` | `host= domain= ip= cname= alias= hwaddr= client-id= lease-time= local ignore description= comments=` (lists comma separated); items: `host.domain` or the hostname. `print` lists by host name, `sort=domain\|ip\|hwaddr\|description\|config` (config: the configured order of the hosts file); a one-shot `#` counts in host name order |
+| `/dnsmasq/host` | `print show add set remove export import` | `host= domain= ip= cname= alias= hwaddr= client-id= lease-time= local ignore description= comments=` (lists comma separated); items: `host.domain` or the hostname. `print` lists by host name, `sort=domain\|ip\|hwaddr\|description\|config` (config: the configured order of the hosts file); a one-shot `#` counts in host name order. `export`/`import`: CSV like the GUI (no comments), matched by hostname, domain and ip_address |
 | `/dnsmasq/domain` | `print show add set remove` | `domain= ip= port= source-ip= sequence= description=`; items: the domain |
 | `/dnsmasq/lease` | `print` | |
 | `/dnsmasq/service` | `status start stop restart reconfigure` | |
@@ -124,7 +124,7 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/dnsmasq/option` | `print show add set remove codes` | DHCP options: `type=set\|match option= option6= interface= tag= set-tag= value= force`; `codes` lists the option names |
 | `/dnsmasq/tag`, `/dnsmasq/boot` | `print show add set remove` | DHCP tags `name=`; boot/PXE entries `interface= tag= filename= servername= address=`; tags are given by name |
 | `/kea/dhcp4/subnet`, `/kea/dhcp6/subnet` | `print show add set remove` | `subnet= pools= description= valid-lifetime= auto-options routers= dns-servers= domain-name= ...` (v6: `interface= pd-allocator= ...`); items: the network or description |
-| `/kea/dhcp4/reservation`, `/kea/dhcp6/reservation` | `print show add set remove` | `ip-address= mac-address= client-id= hostname= description=` (v6: `duid= prefix=`), the subnet is found from the address; items: hostname, MAC or IP |
+| `/kea/dhcp4/reservation`, `/kea/dhcp6/reservation` | `print show add set remove export import` | `ip-address= mac-address= client-id= hostname= description=` (v6: `duid= prefix=`), the subnet is found from the address; items: hostname, MAC or IP. `export`/`import`: CSV like the GUI, matched by subnet + MAC (v6: + DUID); the subnet comes from the address or an optional `subnet` column (network, description or uuid), rows without one refuse the file. The export leaves out the subnet and (v4) the reservation's own DHCP options |
 | `/kea/dhcp4/option`, `/kea/dhcp6/option`, `/kea/dhcp6/pd-pool` | `print show add set remove` | custom options `code= encoding= data= force`; prefix delegation pools `subnet= prefix= delegated-length=` |
 | `/kea/dhcp4/peer`, `/kea/dhcp6/peer` | `print show add set remove` | HA peers: `name= role=primary\|standby url=` |
 | `/kea/dhcp4/lease`, `/kea/dhcp6/lease` | `print remove` | `print interface= search= detail json` |
@@ -144,13 +144,13 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/system` | `reboot shutdown` | `reboot wait timeout= poll-interval=` |
 | `/system/resource` | `print monitor` | versions, uptime, memory, disks, ...; `monitor` streams the CPU usage, `once` |
 | `/system/activity` | `print` | top: `lines= follow interval=` |
-| `/system/user` | `print show add set remove enable disable password` | `name= password= full-name= email= groups= privileges= shell= expires= disabled`; `password` asks without echo; root and the user of the API key can't be removed or disabled |
+| `/system/user` | `print show add set remove enable disable password export import` | `name= password= full-name= email= groups= privileges= shell= expires= disabled`; `password` asks without echo; root and the user of the API key can't be removed or disabled. `export`/`import`: CSV like the GUI, matched by name; no passwords or keys (new users get a random password); the import refuses rows for root, the API key's user, `page-all` or admin groups, and API keys |
 | `/system/user/api-key` | `print add remove` | `add <user> file= overwrite` prints key and secret once; the key opn uses can't be removed |
 | `/system/group` | `print show add set remove` | `name= description= members= privileges= source-networks=`; the admins group is protected |
 | `/system/privilege` | `print show grant revoke` | `print user= group= granted`, `grant <privilege> user= group=` |
 | `/system/service` | `print show start stop restart` | all services (System > Diagnostics > Services); stopping a running service and restarting webgui, configd, openssh, pf or routing ask for confirmation |
-| `/system/firmware` | `status check audit update upgrade log` | `audit type=security\|health\|connection`; actions run on the firewall, opn follows their log (`background` only starts them) |
-| `/system/firmware/package`, `/system/firmware/plugin` | `print show license install remove reinstall lock unlock` | `print all`; everything that changes packages asks for confirmation |
+| `/system/firmware` | `status check audit update upgrade cleanup log` | `audit type=security\|health\|connection`; `cleanup` removes unused dependency packages (pkg autoremove), stale update files and the package cache (asks); actions run on the firewall, opn follows their log (`background` only starts them) |
+| `/system/firmware/package`, `/system/firmware/plugin` | `print show license install remove reinstall lock unlock` (plugin: also `sync resync`) | `print all`; everything that changes packages asks for confirmation. `plugin sync` installs configured plugins that are missing, `plugin resync` makes the configured plugin list match the installed plugins (configuration only); `plugin print`/`show` warn about installed plugins that aren't registered (no `C` flag) and configured plugins that are missing |
 | `/system/firmware/changelog`, `/system/firmware/settings` | `print show`, `print set` | settings: `mirror= flavour= type= subscription=` (masked) |
 | `/system/ha` | `print set apply status sync` | High Availability: `pfsync-interface= pfsync-peer-ip= synchronize-to-ip= username= password= sync-items=`; `/system/ha/service` controls services on the backup node |
 | `/system/snapshot` | `print show add set remove activate` | ZFS boot environments: `add name= from=` (refused on UFS) |
@@ -175,8 +175,8 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/firewall/alias/table` | `print add remove flush find update-bogons` | the live pf tables: `print [alias]`, `add <alias> address=`, `find <address>` |
 | `/firewall/alias/geoip` | `print set update` | GeoIP source of geoip aliases: `set url=` (`url=` clears; masked in print/json, used after `/firewall/alias apply`), `update` downloads the database |
 | `/firewall/group` | `print show add set remove apply` | interface groups: `name= members= sequence= no-group description=` |
-| `/firewall/category` | `print show add set remove` | `name= color=` |
-| `/firewall/shaper/pipe`, `queue`, `rule` | `print show add set remove enable disable` | pipe: `bandwidth=100Mbit scheduler= mask= delay= codel pie description=`; queue: `pipe= weight=`; rule: `interface= protocol= source= destination= direction= target=<pipe or queue>` |
+| `/firewall/category` | `print show add set remove export import` | `name= color=`; `export`/`import`: CSV `name;color`, matched by name |
+| `/firewall/shaper/pipe`, `queue`, `rule` | `print show add set remove enable disable` (pipe, queue: also `export import`) | pipe: `bandwidth=100Mbit scheduler= mask= delay= codel pie description=`; queue: `pipe= weight=`; rule: `interface= protocol= source= destination= direction= target=<pipe or queue>`. `export`/`import` of pipes and queues: CSV like the GUI, matched by `@uuid`; the import numbers new rows and refuses used numbers, a queue's `pipe` may be the pipe's description; import pipes before queues |
 | `/firewall/shaper` | `status reconfigure flush-reload` | `status detail follow` (`apply` is an alias of `reconfigure`) |
 | `/firewall/state` | `print remove kill flush flush-sources rule-ids` | `print search= rule= interface= protocol= src= dst= port= sort= limit= follow`, `kill <filters>`, `flush drop-own-connection` |
 | `/firewall/session` | `print` | pftop: `sort= limit= search= follow` |
@@ -234,6 +234,13 @@ contacting the firewall; `version detail` adds the Go version and platform.
 `/ddclient` and `/node-exporter` need their plugin (`/system/firmware/plugin install os-ddclient`,
 `os-node_exporter`); without it they say so. Let the node exporter listen on a LAN address or 127.0.0.1 rather than
 the default 0.0.0.0 (all interfaces, WAN included).
+
+`export <file>` (or `-` for stdout, `overwrite` to replace a file) and `import <file>` use the CSV format of the
+GUI's "Export as csv" / "Import csv" buttons (aliases, firewall rules, NAT, categories, shaper pipes and queues,
+dnsmasq hosts, Unbound host overrides, Kea reservations, users). Files are written with mode 0600. An import adds
+and updates, it never removes; the file is checked before anything is sent (CSV syntax, column names) and the
+import asks for confirmation. When OPNsense rejects rows it saves the others if they are valid on their own, so
+check the result after an error. Imported records take effect like other changes (see "Applying changes").
 
 `help` and `exit` work in every menu. `opn <menu> ?` and `opn <menu> <command> ?` list everything with its help.
 

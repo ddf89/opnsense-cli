@@ -210,6 +210,9 @@ func TestFirmwareActions(t *testing.T) {
 		"POST /api/core/firmware/upgrade":          `{"msg_uuid":"x","status":"ok"}`,
 		"POST /api/core/firmware/health":           `{"msg_uuid":"x","status":"ok"}`,
 		"POST /api/core/firmware/connection":       `{"msg_uuid":"x","status":"ok"}`,
+		"POST /api/core/firmware/cleanup":          `{"msg_uuid":"x","status":"ok"}`,
+		"POST /api/core/firmware/sync_plugins":     `{"status":"ok"}`,
+		"POST /api/core/firmware/resync_plugins":   `{"status":"execute error"}`,
 		"GET /api/core/firmware/upgradestatus":     `{"status":"done","log":"x\n***DONE***"}`,
 		"POST /api/core/firmware/install/bad name": `{"status":"ok"}`,
 	})
@@ -231,6 +234,9 @@ func TestFirmwareActions(t *testing.T) {
 	coreTestWantError(t, api.FirmwareStart(FirmwareActionHealth), "")
 	coreTestWantError(t, api.FirmwareStart(FirmwareActionConnection), "")
 	coreTestWantError(t, api.FirmwareStart(FirmwareActionAudit), `status "failure"`)
+	coreTestWantError(t, api.FirmwareStart(FirmwareActionCleanup), "")
+	coreTestWantError(t, api.FirmwareStart(FirmwareActionSyncPlugins), "")
+	coreTestWantError(t, api.FirmwareStart(FirmwareActionResyncPlugins), `firmware resync_plugins was not accepted: status "execute error"`)
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionInstall, "os-acme"), "")
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionRemove, "os-acme"), "")
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionLock, "beep"), "")
@@ -242,13 +248,32 @@ func TestFirmwareActions(t *testing.T) {
 	coreTestWantError(t, api.FirmwareStart("poweroff"), "unknown firmware action")
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionCheck, "beep"), "not a package action")
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionInstall, "bad name"), "invalid package name")
-	if len(server.posts()) != sent || sent != 11 {
-		t.Errorf("want 11 posts and none for invalid actions, got %v", server.posts())
+	if len(server.posts()) != sent || sent != 14 {
+		t.Errorf("want 14 posts and none for invalid actions, got %v", server.posts())
 	}
 	for _, call := range server.posts() {
 		if call.Body != "" {
 			t.Errorf("want POST without body, got %+v", call)
 		}
+	}
+}
+
+func TestFirmwarePluginConflicts(t *testing.T) {
+	var info = FirmwareInfo{Plugins: []FirmwarePackage{
+		{Name: "os-missing", Configured: true},
+		{Name: "os-ok", Installed: true, Configured: true},
+		{Name: "os-unregistered", Installed: true},
+		{Name: "os-available", Provided: true},
+		{Name: "os-other", Installed: true},
+	}}
+	if got := info.UnregisteredPlugins(); !reflect.DeepEqual(got, []string{"os-unregistered", "os-other"}) {
+		t.Errorf("unregistered %v", got)
+	}
+	if got := info.MissingPlugins(); !reflect.DeepEqual(got, []string{"os-missing"}) {
+		t.Errorf("missing %v", got)
+	}
+	if got := (FirmwareInfo{}).MissingPlugins(); got != nil {
+		t.Errorf("want nil, got %v", got)
 	}
 }
 

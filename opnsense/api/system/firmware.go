@@ -22,8 +22,9 @@ import (
 //     upgradestatus (status and log of the last background action)
 //   - POST only, read-only but slow: changelog/<version>, details/<pkg>, license/<pkg>
 //   - background actions (POST, answer {"status":"ok","msg_uuid":…} at once, progress via upgradestatus):
-//     check, audit, health, connection, update, upgrade, install/<pkg>, remove/<pkg>, reinstall/<pkg>,
-//     lock/<pkg>, unlock/<pkg>. Anything but a POST answers {"status":"failure"} without doing anything.
+//     check, audit, health, connection, cleanup, update, upgrade, install/<pkg>, remove/<pkg>, reinstall/<pkg>,
+//     lock/<pkg>, unlock/<pkg>; sync_plugins and resync_plugins answer {"status":"ok"} (the configd answer, no
+//     msg_uuid). Anything but a POST answers {"status":"failure"} without doing anything.
 //
 // 26.7 quirks: a check can upgrade pkg itself first ("New version of pkg detected"), like the web UI's check.
 // The background actions do not refuse to start while another one runs, check FirmwareBusy first.
@@ -255,6 +256,31 @@ func (i *FirmwareInfo) UnmarshalJSON(data []byte) error {
 		}
 	}
 	return nil
+}
+
+// UnregisteredPlugins returns the names of the plugins that are installed but not recorded in the configuration
+// (the web UI marks them "misconfigured", FLAGS without C): a plugin sync does not reinstall them, a resync
+// registers them. Plugins installed as a dependency count as configured
+func (i FirmwareInfo) UnregisteredPlugins() []string {
+	var names []string
+	for _, plugin := range i.Plugins {
+		if plugin.Installed && !plugin.Configured {
+			names = append(names, plugin.Name)
+		}
+	}
+	return names
+}
+
+// MissingPlugins returns the names of the plugins that are recorded in the configuration but not installed (the
+// web UI marks them "missing"): a plugin sync installs them, a resync unregisters them
+func (i FirmwareInfo) MissingPlugins() []string {
+	var names []string
+	for _, plugin := range i.Plugins {
+		if plugin.Configured && !plugin.Installed {
+			names = append(names, plugin.Name)
+		}
+	}
+	return names
 }
 
 // FirmwareChangelog is the changelog of one release
@@ -573,6 +599,17 @@ const (
 	FirmwareActionUpdate FirmwareAction = "update"
 	// FirmwareActionUpgrade installs the pending major upgrade and reboots
 	FirmwareActionUpgrade FirmwareAction = "upgrade"
+	// FirmwareActionCleanup removes unused automatically installed packages (pkg autoremove), stale update files
+	// (opnsense-update -F) and the package cache (pkg clean -a)
+	FirmwareActionCleanup FirmwareAction = "cleanup"
+	// FirmwareActionSyncPlugins installs the configured plugins that are not installed (the web UI's "Run the
+	// automatic resolver"), refused like a plugin install on an outdated base; it runs pkg autoremove when it
+	// installed something
+	FirmwareActionSyncPlugins FirmwareAction = "sync_plugins"
+	// FirmwareActionResyncPlugins makes the configured plugin list match the installed plugins (the web UI's
+	// "Reset all local conflicts"): it registers installed plugins that are not configured and unregisters
+	// configured plugins that are not installed. It only changes the configuration, no package
+	FirmwareActionResyncPlugins FirmwareAction = "resync_plugins"
 	// package actions, see FirmwarePackageAction
 	FirmwareActionInstall   FirmwareAction = "install"
 	FirmwareActionRemove    FirmwareAction = "remove"
@@ -589,14 +626,15 @@ func (a FirmwareAction) needsPackage() bool {
 	return false
 }
 
-// FirmwareStart starts a background action that takes no package (check, audit, health, connection, update,
-// upgrade) and returns at once, follow it with FirmwareWait
+// FirmwareStart starts a background action that takes no package (check, audit, health, connection, cleanup,
+// update, upgrade, sync_plugins, resync_plugins) and returns at once, follow it with FirmwareWait
 func (opn *SystemApi) FirmwareStart(action FirmwareAction) error {
 	if action.needsPackage() {
 		return fmt.Errorf("firmware %s needs a package, use FirmwarePackageAction", action)
 	}
 	switch action {
-	case FirmwareActionCheck, FirmwareActionAudit, FirmwareActionHealth, FirmwareActionConnection, FirmwareActionUpdate, FirmwareActionUpgrade:
+	case FirmwareActionCheck, FirmwareActionAudit, FirmwareActionHealth, FirmwareActionConnection, FirmwareActionCleanup,
+		FirmwareActionUpdate, FirmwareActionUpgrade, FirmwareActionSyncPlugins, FirmwareActionResyncPlugins:
 	default:
 		return fmt.Errorf("unknown firmware action %q", action)
 	}

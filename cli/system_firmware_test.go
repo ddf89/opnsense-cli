@@ -116,6 +116,8 @@ func TestSystemFirmwareDangerousNeedConfirm(t *testing.T) {
 		{"/system/firmware/package", "install", "abseil"}, {"/system/firmware/package", "remove", "beep"},
 		{"/system/firmware/package", "reinstall", "beep"}, {"/system/firmware/package", "lock", "beep"},
 		{"/system/firmware/package", "unlock", "curl"}, {"/system/firmware/plugin", "install", "os-acme-client"},
+		{"/system/firmware", "cleanup"}, {"/system/firmware", "cleanup", "background"},
+		{"/system/firmware/plugin", "sync"}, {"/system/firmware/plugin", "resync", "confirm=no"},
 	} {
 		wantFailure(t, f.run(args...), "confirm=yes")
 	}

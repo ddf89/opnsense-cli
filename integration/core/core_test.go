@@ -4,6 +4,8 @@ package integrationcore
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -194,6 +196,87 @@ func TestCliFirmware(t *testing.T) {
 	mustFailOpn(t, "confirm=yes", "/system/firmware", "upgrade")
 	mustFailOpn(t, "confirm=yes", "/system/firmware/package", "reinstall", "opnsense")
 	mustFailOpn(t, "not found", "/system/firmware/plugin", "remove", "os-a9-core-no-such", "confirm=yes")
+}
+
+// TestCliFirmwarePluginMaintenance checks the plugin conflict hints against the live plugin state. The plugin
+// resync and sync run only when both are no-ops (every installed plugin registered, every configured plugin
+// installed: nothing to register, unregister or install), and the installed packages and plugins must be the same
+// afterwards. cleanup is never run live: its pkg autoremove can remove packages
+func TestCliFirmwarePluginMaintenance(t *testing.T) {
+	var opn = systemApi(t)
+	// the endpoints exist (an unknown one answers 404) and do nothing without a POST
+	for _, method := range []string{"sync_plugins", "resync_plugins", "cleanup"} {
+		var answer struct {
+			Status string `json:"status"`
+		}
+		if err := opn.DoJSON("GET", opn.EndpointForPluginControllerMethod("core", "firmware", method), nil, &answer); err != nil || answer.Status != "failure" {
+			t.Errorf("GET %s: want status failure, got %q %v", method, answer.Status, err)
+		}
+	}
+	mustFailOpn(t, "confirm=yes", "/system/firmware", "cleanup")
+	mustFailOpn(t, "confirm=yes", "/system/firmware/plugin", "sync")
+	mustFailOpn(t, "confirm=yes", "/system/firmware/plugin", "resync")
+
+	var before, err = opn.FirmwareInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unregistered, missing = before.UnregisteredPlugins(), before.MissingPlugins()
+	var result = mustOpn(t, "/system/firmware/plugin", "print")
+	for _, name := range append(append([]string(nil), unregistered...), missing...) {
+		requireContains(t, result, result.stderr, name)
+	}
+	if len(unregistered) > 0 {
+		requireContains(t, result, result.stderr, "installed but not registered", "/system/firmware/plugin resync")
+	}
+	if len(missing) > 0 {
+		requireContains(t, result, result.stderr, "configured but not installed", "/system/firmware/plugin sync")
+	}
+	if len(unregistered)+len(missing) == 0 && strings.Contains(result.stderr, "warning") {
+		t.Errorf("want no plugin hint, got:\n%s", result)
+	}
+	for _, plugin := range before.Plugins {
+		if plugin.Installed {
+			result = mustOpn(t, "/system/firmware/plugin", "show", plugin.Name)
+			if strings.Contains(result.stderr, "warning") != !plugin.Configured {
+				t.Errorf("%s (configured %v): unexpected hint:\n%s", plugin.Name, plugin.Configured, result)
+			}
+		}
+	}
+
+	if len(unregistered)+len(missing) > 0 {
+		t.Skipf("the plugins are not in sync (unregistered %v, missing %v), not running resync/sync", unregistered, missing)
+	}
+	for _, command := range []string{"resync", "sync"} {
+		if busy, err := opn.FirmwareBusy(); err != nil || busy {
+			t.Skipf("a firmware action is running (%v), not starting a plugin %s", err, command)
+		}
+		result = mustOpn(t, "/system/firmware/plugin", command, "confirm=yes", "timeout=10m")
+		requireContains(t, result, result.stderr, "***GOT REQUEST TO "+strings.ToUpper(command)+"***", "***DONE***")
+		var after, err = opn.FirmwareInfo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := firmwareInstalledState(after), firmwareInstalledState(before); !reflect.DeepEqual(got, want) {
+			t.Fatalf("plugin %s changed the installed packages or plugins:\n before %v\n after  %v", command, want, got)
+		}
+	}
+}
+
+// firmwareInstalledState lists the installed packages with their version and the plugins with their state
+func firmwareInstalledState(info system.FirmwareInfo) []string {
+	var state []string
+	for _, pkg := range info.Packages {
+		if pkg.Installed {
+			state = append(state, pkg.Name+"-"+pkg.Version)
+		}
+	}
+	for _, plugin := range info.Plugins {
+		if plugin.Installed || plugin.Configured {
+			state = append(state, fmt.Sprintf("plugin %s installed=%v configured=%v locked=%v", plugin.Name, plugin.Installed, plugin.Configured, plugin.Locked))
+		}
+	}
+	return state
 }
 
 func TestCliFirmwareAudit(t *testing.T) {

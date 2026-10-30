@@ -11,13 +11,15 @@ import (
 // /system/firmware: System > Firmware. status shows the result of the last check, check asks the mirror, audit runs
 // the security / health / connectivity audits; update and upgrade install. The background actions are followed
 // until they finish (Ctrl-C stops following, not the action), their log goes to stderr (audit: stdout, it is the
-// report). Sub menus: package, plugin, changelog, settings
+// report), cleanup removes unused dependencies and cached files. Sub menus: package, plugin, changelog, settings
 
 const (
 	systemFirmwareUpdateWarning = "This installs all pending updates: services restart and the firewall reboots when " +
 		"the update needs it (or when the reboot setting is on)."
 	systemFirmwareUpgradeWarning = "This installs the major upgrade and reboots the firewall, there is no way back but a " +
 		"reinstall or a boot environment snapshot."
+	systemFirmwareCleanupWarning = "This removes the packages that were installed as dependencies and are no longer " +
+		"needed (pkg autoremove), stale update files and the cached packages."
 )
 
 func init() {
@@ -53,6 +55,11 @@ packages, connection tests the mirror over IPv4 and IPv6 (minutes when one of th
 				{Name: "timeout", Type: Duration, Default: "15m", Validate: systemPowerPositive, Help: "how long to wait for the report"},
 			},
 			Run: systemFirmwareAudit},
+		&Command{Name: "cleanup", Help: "remove unused dependencies, stale update files and the package cache",
+			Long: `Runs the web UI's Audit > Cleanup: pkg autoremove (removes packages that were installed as a
+dependency and are no longer required), opnsense-update -F (stale update files) and pkg clean -a (the cached
+package files). Its log goes to stderr.`,
+			Args: follow, Confirm: systemFirmwareCleanupWarning, Run: systemFirmwareCleanup},
 		&Command{Name: "update", Help: "install all pending updates (run check first)",
 			Args: follow, Confirm: systemFirmwareUpdateWarning, Run: systemFirmwareUpdate},
 		&Command{Name: "upgrade", Help: "install the pending major upgrade (run check first)",
@@ -223,6 +230,10 @@ func systemFirmwareAudit(c *Context, args *Args) error {
 	_, err = systemFirmwareRun(c, api, string(action)+" audit", func() error { return api.FirmwareStart(action) },
 		out, false, args.Duration("timeout"))
 	return systemFirmwareFollowErr(err)
+}
+
+func systemFirmwareCleanup(c *Context, args *Args) error {
+	return systemFirmwareInstall(c, args, system.FirmwareActionCleanup)
 }
 
 func systemFirmwareUpdate(c *Context, args *Args) error {

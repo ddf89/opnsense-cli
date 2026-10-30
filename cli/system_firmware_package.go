@@ -9,7 +9,7 @@ import (
 // /system/firmware/package and /system/firmware/plugin: System > Firmware > Packages and Plugins. print lists the
 // installed ones (all: also the available ones of the configured repositories), items are selected by the # of
 // print or the package name. install, remove, reinstall, lock and unlock run in the background on the firewall and
-// are followed until they finish
+// are followed until they finish. The plugin menu also has sync and resync (system_firmware_plugin.go)
 
 // systemFirmwarePackageKind is what one of the two menus lists
 type systemFirmwarePackageKind struct {
@@ -46,7 +46,8 @@ func systemFirmwarePackageMenu(path string, help string, kind systemFirmwarePack
 		&Command{Name: "print", Help: fmt.Sprintf("list the installed %ss", kind.what),
 			Long: `all also lists what the configured repositories provide (the catalogue of the last check). Flags: L
 locked (not updated), A automatic (installed as a dependency), C configured (plugins: recorded in the
-configuration, a configured plugin that is not installed is missing).`,
+configuration, a configured plugin that is not installed is missing). The plugin print warns on stderr about
+installed plugins that are not registered (no C, fixed by "resync") and missing ones ("sync" installs them).`,
 			Args: []Arg{
 				{Name: "all", Type: Bool, Help: fmt.Sprintf("also list the available %ss", kind.what)},
 				{Name: "detail", Type: Bool, Help: "show all fields of every " + kind.what},
@@ -77,12 +78,17 @@ func systemFirmwarePackageList(api *system.SystemApi, kind systemFirmwarePackage
 	if err != nil {
 		return nil, err
 	}
+	return systemFirmwarePackageFilter(info, kind, all), nil
+}
+
+// systemFirmwarePackageFilter picks the packages or plugins of info, only the installed ones unless all
+func systemFirmwarePackageFilter(info system.FirmwareInfo, kind systemFirmwarePackageKind, all bool) []system.FirmwarePackage {
 	var list = info.Packages
 	if kind.plugins {
 		list = info.Plugins
 	}
 	if all {
-		return list, nil
+		return list
 	}
 	var installed = make([]system.FirmwarePackage, 0, len(list))
 	for _, pkg := range list {
@@ -90,7 +96,7 @@ func systemFirmwarePackageList(api *system.SystemApi, kind systemFirmwarePackage
 			installed = append(installed, pkg)
 		}
 	}
-	return installed, nil
+	return installed
 }
 
 func systemFirmwarePackageName(pkg system.FirmwarePackage) string {
@@ -203,9 +209,13 @@ func systemFirmwarePackagePrint(c *Context, args *Args, kind systemFirmwarePacka
 	if err != nil {
 		return err
 	}
-	var list, listErr = systemFirmwarePackageList(api, kind, args.Bool("all"))
-	if listErr != nil {
-		return listErr
+	var info, infoErr = api.FirmwareInfo()
+	if infoErr != nil {
+		return infoErr
+	}
+	var list = systemFirmwarePackageFilter(info, kind, args.Bool("all"))
+	if kind.plugins {
+		defer systemFirmwarePluginHints(c, info)
 	}
 	if args.Has("search") {
 		var phrase = strings.ToLower(args.String("search"))
@@ -267,6 +277,9 @@ func systemFirmwarePackageShow(c *Context, args *Args, kind systemFirmwarePackag
 	if detailsErr == nil {
 		c.Println()
 		c.Println(strings.TrimRight(details, "\n"))
+	}
+	if kind.plugins {
+		systemFirmwarePluginHints(c, system.FirmwareInfo{Plugins: []system.FirmwarePackage{pkg}})
 	}
 	return nil
 }
