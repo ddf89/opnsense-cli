@@ -52,8 +52,8 @@ func (s *testServer) reset() {
 	s.requests = nil
 }
 
-// newTestApi starts a fake OPNsense: answers maps "METHOD /path" to "<status> <body>" or "<body>" (status 200);
-// unknown endpoints answer 404 like OPNsense
+// newTestApi starts a fake OPNsense: answers maps "METHOD /path" to "<status> <body>" or "<body>" (status 200),
+// JSON or, with a "csv:" prefix, text/csv; unknown endpoints answer 404 like OPNsense
 func newTestApi(t *testing.T, answers map[string]string) (*DhcpApi, *testServer) {
 	t.Helper()
 	var server = &testServer{}
@@ -78,6 +78,10 @@ func newTestApi(t *testing.T, answers map[string]string) (*DhcpApi, *testServer)
 			status, answer = 500, strings.TrimPrefix(answer, "500 ")
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if csvAnswer, isCsv := strings.CutPrefix(answer, "csv:"); isCsv {
+			w.Header().Set("Content-Type", "text/csv;charset=UTF-8")
+			answer = csvAnswer
+		}
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, answer)
 	}))

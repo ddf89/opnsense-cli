@@ -48,7 +48,10 @@ func init() {
 		var options = keaOptionItems(version)
 		subnets.fields = keaSubnetFields(version, keaRefTo(options))
 		keaRegisterItems(subnets)
-		keaRegisterItems(keaReservationItems(version, keaRefTo(subnets), keaRefTo(options)))
+		var reservations = keaReservationItems(version, keaRefTo(subnets), keaRefTo(options))
+		keaRegisterItems(reservations)
+		var transfer = keaReservationTransfer(version, keaRefTo(subnets))
+		Root.Menu(reservations.path).Add(transfer.ExportCommand(), transfer.ImportCommand())
 		keaRegisterItems(options)
 		keaRegisterItems(keaPeerItems(version))
 		if version == 6 {
