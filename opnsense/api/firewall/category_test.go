@@ -185,3 +185,25 @@ func TestCategoryRemove(t *testing.T) {
 		t.Errorf("want no requests, got %+v", *requests)
 	}
 }
+
+func TestCategoryExportImport(t *testing.T) {
+	var api, requests = newShaperTestApi(t, func(r shaperTestRequest) shaperTestAnswer {
+		if strings.HasSuffix(r.Path, "/download") {
+			return shaperTestOk("name;color\nweb;ff00AA\n")
+		}
+		return shaperTestOk(map[string]any{"validations": []any{}, "inserted": 1, "updated": 1,
+			"uuids": map[string]int{categoryTestUuid: 0}, "fieldnames": []string{"name", "color"}})
+	})
+	var content, err = api.CategoryExport()
+	if err != nil || string(content) != "name;color\nweb;ff00AA\n" {
+		t.Errorf("CategoryExport: %q / %v", content, err)
+	}
+	result, err := api.CategoryImport([]byte("name;color\nweb;00ff00\nnew;\n"), "categories.csv")
+	if err != nil || result.Inserted != 1 || result.Updated != 1 || result.Uuids[categoryTestUuid] != 0 {
+		t.Errorf("CategoryImport: %+v / %v", result, err)
+	}
+	if got := requests(); len(got) != 2 || got[0].Method != "GET" || got[0].Path != categoryTestPath+"download" ||
+		got[1].Method != "POST" || got[1].Path != categoryTestPath+"upload" || !strings.Contains(got[1].Body, `"payload":"name;color\nweb;00ff00\nnew;\n"`) {
+		t.Errorf("requests: %+v", got)
+	}
+}

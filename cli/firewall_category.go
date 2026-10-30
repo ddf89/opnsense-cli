@@ -51,7 +51,30 @@ color is replaced (a color not given is cleared).`,
 		&Command{Name: "remove", Help: "remove a category",
 			Long: `A category used by rules can not be removed, the error names the rules.`,
 			Args: []Arg{item}, Run: firewallCategoryRemove},
+		firewallCategoryTransfer.ExportCommand(),
+		firewallCategoryTransfer.ImportCommand(),
 	)
+}
+
+// firewallCategoryTransfer is the CSV export / import (api/firewall/category/download, upload)
+var firewallCategoryTransfer = CsvTransfer{What: "categories", Key: "name (case-sensitive)",
+	Note: `The export has the columns name and color: no uuid and no auto flag, auto categories are exported like the
+others and an import adds them as normal categories. The name can not be changed by an import (rename with set).`,
+	Export: func(c *Context) ([]byte, error) {
+		var api, err = firewallApi(c)
+		if err != nil {
+			return nil, err
+		}
+		return api.CategoryExport()
+	},
+	Import: func(c *Context, content []byte, filename string) (coreapi.CsvImportResult, error) {
+		var api, err = firewallApi(c)
+		if err != nil {
+			return coreapi.CsvImportResult{}, err
+		}
+		return api.CategoryImport(content, filename)
+	},
+	Columns: func(*Context) ([]string, error) { return firewall.CategoryCsvColumns, nil },
 }
 
 // --- validation

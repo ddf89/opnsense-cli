@@ -182,3 +182,21 @@ func (opn *FirewallApi) CategoryRemove(uuid string) error {
 	}
 	return nil
 }
+
+// CSV export / import of categories (api/firewall/category/download and upload), the format of the GUI's
+// "Export as csv" / "Import csv" buttons. The export has the columns name and color (no uuid, no auto flag), the
+// import is an upsert keyed by name (case-sensitive): a row with the name of an existing category overwrites its
+// color when the file has a color column, every other row adds a category
+
+// CategoryCsvColumns are the columns of the export, the ones the import understands
+var CategoryCsvColumns = []string{"name", "color"}
+
+// CategoryExport returns the categories as CSV, empty when there are no categories
+func (opn *FirewallApi) CategoryExport() ([]byte, error) {
+	return opn.DownloadCsv(opn.endpoint("firewall", "category", "download"))
+}
+
+// CategoryImport imports categories from a CSV file; filename is only informative
+func (opn *FirewallApi) CategoryImport(content []byte, filename string) (coreapi.CsvImportResult, error) {
+	return opn.UploadCsv(opn.endpoint("firewall", "category", "upload"), content, filename)
+}
