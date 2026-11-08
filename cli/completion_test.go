@@ -20,7 +20,11 @@ func TestCompletionScript(t *testing.T) {
 	r = f.run("/completion", "bash", "name=opn,opn-linux-amd64")
 	wantExit(t, r, 0)
 	wantContains(t, "script", r.stdout, "complete -o default -F _opn_completion opn opn-linux-amd64\n")
-	wantFailure(t, f.run("completion", "zsh"), "zsh")
+	r = f.run("completion", "zsh", "name=opn,opn-linux-amd64")
+	wantExit(t, r, 0)
+	wantContains(t, "zsh script", r.stdout, "#compdef opn opn-linux-amd64\n", "_opn() {",
+		`"$program" __complete "$line" "$PREFIX"`, "compdef _opn opn opn-linux-amd64\n")
+	wantFailure(t, f.run("completion", "fish"), "fish")
 	wantFailure(t, f.run("completion", "name=opn;rm"), "not a usable program name")
 	wantNoCalls(t, f)
 
@@ -90,7 +94,7 @@ func TestCompleteCommandLine(t *testing.T) {
 		{"opn --verbose dnsmasq host print sort=i", "i", []string{"ip"}},
 		{"opn dnsmasq host print sort=d", "sort=d", []string{"sort=description", "sort=domain"}},
 		{"opn --ve", "--ve", []string{"--verbose", "--version"}},
-		{"opn completion ", "", []string{"bash", "name=", "shell="}},
+		{"opn completion ", "", []string{"bash", "name=", "shell=", "zsh"}},
 		// item names come from the API (the fake), the positional argument completes without its name
 		{"opn /dnsmasq/host remove ", "", []string{"db.example.lan", "item=", "web.example.lan"}},
 		{"opn /dnsmasq/host remove w", "w", []string{"web.example.lan"}},
@@ -145,5 +149,52 @@ _opn_completion; printf '%s\n' "${COMPREPLY[@]}"
 	var want = "=config\n=description\n=domain\n=host\n=hwaddr\n=ip\nhost\n"
 	if string(out) != want {
 		t.Errorf("bash completion:\n got  %q\n want %q", out, want)
+	}
+}
+
+// the generated zsh function, with compadd/_files/compdef stubbed: what it adds for a line being completed
+func TestCompletionInZsh(t *testing.T) {
+	t.Parallel()
+	var zsh, err = exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("no zsh")
+	}
+	var dir = t.TempDir()
+	var script = filepath.Join(dir, "_opn")
+	if err := os.WriteFile(script, []byte(completionZshScript([]string{"opn"})), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(zsh, "-n", script).CombinedOutput(); err != nil {
+		t.Fatalf("zsh -n: %v\n%s", err, out)
+	}
+
+	var f = newDnsmasqHostFake(t, dnsmasqHostRow(map[string]any{"uuid": "u-web", "host": "web", "domain": "example.lan"}))
+	var driver = `
+compdef() { print -r -- "compdef $*" }
+compadd() { print -r -- "compadd ${(j:|:)@}" }
+_files() { print -r -- "_files" }
+source "$SCRIPT"
+complete() { words=("$OPN_BINARY" "${@[1,-2]}" "${@[-1]}"); CURRENT=$#words; PREFIX=${@[-1]}; print -r -- "== ${(j: :)@}"; _opn }
+complete dnsmasq ho
+complete dnsmasq host print so
+complete dnsmasq host print sort=i
+complete /dnsmasq/host remove w
+complete /dnsmasq/host export hosts
+`
+	var command = exec.Command(zsh, "-f", "-c", driver)
+	command.Env = append(f.env(), "OPN_BINARY="+opnBinary, "SCRIPT="+script, "PATH="+os.Getenv("PATH"))
+	out, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("zsh: %v\n%s", err, out)
+	}
+	var want = "compdef _opn opn\n" +
+		"== dnsmasq ho\ncompadd -U|-Q|--|host\n" +
+		"== dnsmasq host print so\ncompadd -U|-Q|-S||--|sort=\n" +
+		"== dnsmasq host print sort=i\ncompadd -U|-Q|--|sort=ip\n" +
+		"== /dnsmasq/host remove w\ncompadd -U|-Q|--|web.example.lan\n" +
+		// nothing matches: file names (the file of export)
+		"== /dnsmasq/host export hosts\n_files\n"
+	if string(out) != want {
+		t.Errorf("zsh completion:\n got  %q\n want %q", out, want)
 	}
 }

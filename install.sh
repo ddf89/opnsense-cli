@@ -65,7 +65,7 @@ main() {
     info "installed opn $installed to $dir/opn"
     path_hint "$dir"
     info "next: set OPN_URL, OPN_APIKEY and OPN_APISECRET (or a .env file), then try: opn /check"
-    info "bash completion: source <(opn completion bash)"
+    info "shell completion: source <(opn completion bash)  (zsh: source <(opn completion zsh))"
 }
 
 usage() {

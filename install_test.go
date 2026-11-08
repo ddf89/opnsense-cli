@@ -146,7 +146,7 @@ func TestInstallPlatforms(t *testing.T) {
 			t.Errorf("%s %s: mode %v %v", tc.os, tc.arch, info.Mode(), err)
 		}
 		for _, want := range []string{"downloading " + tc.want + " (latest release)", "installed opn " + tc.want + " to " + bin,
-			"is not in your PATH yet", "opn completion bash"} {
+			"is not in your PATH yet", "opn completion bash", "opn completion zsh"} {
 			if !strings.Contains(result.output, want) {
 				t.Errorf("%s %s: output lacks %q:\n%s", tc.os, tc.arch, want, result.output)
 			}
