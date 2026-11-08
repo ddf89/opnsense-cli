@@ -28,7 +28,7 @@ jobs:
         # same naming and -ldflags as the Makefile's cross_build (darwin is published as macos)
         run: |
           mkdir -p dist
-          for platform in linux/amd64 linux/arm64 darwin/arm64; do
+          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os=${platform%/*}; arch=${platform#*/}
             name=$os; [ "$os" = darwin ] && name=macos
             echo "building dist/opn-$name-$arch"
@@ -36,6 +36,8 @@ jobs:
               -ldflags "-X opnsense-cli/cli.Version=$VERSION" -o "dist/opn-$name-$arch" .
           done
           (cd dist && sha256sum opn-* > SHA256SUMS && cat SHA256SUMS)
+          # the installer: curl -fsSL https://github.com/<repo>/releases/latest/download/install.sh | bash
+          cp install.sh dist/
 
       - name: Check version
         run: test "$(./dist/opn-linux-amd64 version)" = "$VERSION"

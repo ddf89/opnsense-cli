@@ -27,9 +27,24 @@ Covered (everything OPNsense 26.7 exposes through its MVC API, legacy PHP pages 
 
 ## Installation
 
-Its precompiled and has no dependencies, so just download the binary for your platform, and you are good to go
+Install the latest release with one line (Linux, WSL on Windows, macOS on Intel or Apple Silicon):
 
-    Pick a release from the releases page of this repository
+    curl -fsSL https://github.com/ddf89/opnsense-cli/releases/latest/download/install.sh | bash
+
+The script picks the binary for your system (`opn-linux-amd64`, `opn-linux-arm64`, `opn-macos-amd64`,
+`opn-macos-arm64`), checks it against the release's `SHA256SUMS` and installs it as `opn` into `~/.local/bin`
+(or `~/bin` when only that one is in your PATH), without sudo; it tells you when that directory isn't in your
+PATH yet. Pin a release or pick the directory with options or environment variables:
+
+    curl -fsSL https://github.com/ddf89/opnsense-cli/releases/latest/download/install.sh | bash -s -- --version 26.7.8 --dir /usr/local/bin
+    OPN_VERSION=26.7.8 OPN_INSTALL_DIR=~/tools bash install.sh
+
+Run it again to update. Native Windows shells (Git Bash, Cygwin) are refused, use WSL. Releases before the
+installer was added don't carry it, use `https://raw.githubusercontent.com/ddf89/opnsense-cli/main/install.sh`
+then (Intel Macs need a release built after it, earlier ones have no `opn-macos-amd64`).
+
+Or download a binary from the releases page yourself, it is precompiled and has no dependencies:
+
     chmod +x opn-*
 
 Or build it yourself (needs Go, see `go.mod` for the version), the binaries end up in `dist/`
