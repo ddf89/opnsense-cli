@@ -1,6 +1,7 @@
 package system
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,13 +95,20 @@ func (opn *SystemApi) SnapshotListRaw() ([]Snapshot, []json.RawMessage, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	var snapshots = make([]Snapshot, len(rows))
-	for i, row := range rows {
-		if err := json.Unmarshal(row, &snapshots[i]); err != nil {
+	// 26.7.8 answers a system without ZFS (bectl's error object) with null rows instead of none
+	var snapshots = make([]Snapshot, 0, len(rows))
+	var raws = make([]json.RawMessage, 0, len(rows))
+	for _, row := range rows {
+		if string(bytes.TrimSpace(row)) == "null" {
+			continue
+		}
+		var snapshot Snapshot
+		if err := json.Unmarshal(row, &snapshot); err != nil {
 			return nil, nil, fmt.Errorf("unexpected snapshot from OPNsense: %w", err)
 		}
+		snapshots, raws = append(snapshots, snapshot), append(raws, row)
 	}
-	return snapshots, rows, nil
+	return snapshots, raws, nil
 }
 
 // SnapshotList returns the boot environments in API order

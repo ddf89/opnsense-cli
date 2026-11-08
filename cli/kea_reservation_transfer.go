@@ -21,8 +21,8 @@ import (
 func keaReservationTransfer(version int, subnets *keaRefSpec) CsvTransfer {
 	var key, keyless = "subnet and MAC address", "A row without MAC address (a reservation by client id)"
 	var export = `The export has every field but the subnet (no secrets); option holds the uuids of custom options. The
-reservation's own DHCP options (routers, dns-servers, ... of set) are neither exported nor imported, the
-option_data column stays empty.`
+reservation's own DHCP options (routers, dns-servers, ...) are option_data.<option> columns (OPNsense 26.7.2
+and later, exported and imported; older versions export an empty option_data column and ignore them).`
 	if version == 6 {
 		key, keyless = "subnet and DUID", "A row without DUID (a reservation by MAC address)"
 		export = `The export has every field but the subnet (no secrets); option holds the uuids of custom options.`

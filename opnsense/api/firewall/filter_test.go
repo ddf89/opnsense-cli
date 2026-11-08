@@ -265,6 +265,11 @@ func TestFilterRuleRemoveToggleLogMove(t *testing.T) {
 			return filterOk(filterTestRows(filterTestAutoRow, filterTestMvcRow))
 		case filterBase + "move_rule_before/" + filterTestUuid + "/" + filterTestUnknown:
 			return filterTestAnswer{Status: 500, Body: map[string]string{"errorMessage": "Unexpected error, check log for details"}}
+		case filterBase + "move_rule_before/" + filterTestUuid2 + "/" + filterTestUnknown:
+			// 26.7.8
+			return filterTestAnswer{Status: 500, Body: map[string]string{"errorMessage": "Target rule not found.", "errorTitle": "Filter"}}
+		case filterBase + "move_rule_before/" + filterTestUnknown + "/" + filterTestUuid2:
+			return filterTestAnswer{Status: 500, Body: map[string]string{"errorMessage": "Selected rule not found.", "errorTitle": "Filter"}}
 		case filterBase + "move_rule_before/" + filterTestUuid2 + "/" + filterTestUuid:
 			return filterTestAnswer{Status: 500, Body: map[string]string{"errorMessage": "Cannot move 'Interface Rule' before 'Floating Rule'.", "errorTitle": "Filter"}}
 		}
@@ -300,6 +305,12 @@ func TestFilterRuleRemoveToggleLogMove(t *testing.T) {
 	}
 	if err := api.FilterRuleMoveBefore(filterTestUuid, filterTestUnknown); !coreapi.IsNotFound(err) || !strings.Contains(err.Error(), filterTestUnknown) {
 		t.Errorf("move before unknown (26.7.7 answer): want NotFoundError for the target, got %v", err)
+	}
+	if err := api.FilterRuleMoveBefore(filterTestUuid2, filterTestUnknown); !coreapi.IsNotFound(err) || !strings.Contains(err.Error(), filterTestUnknown) {
+		t.Errorf("move before unknown (26.7.8 answer): want NotFoundError for the target, got %v", err)
+	}
+	if err := api.FilterRuleMoveBefore(filterTestUnknown, filterTestUuid2); !coreapi.IsNotFound(err) || !strings.Contains(err.Error(), filterTestUnknown) {
+		t.Errorf("move of an unknown rule (26.7.8 answer): want NotFoundError for the moved rule, got %v", err)
 	}
 	var sent = len(*requests)
 	for _, refused := range []error{

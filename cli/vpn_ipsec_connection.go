@@ -23,7 +23,7 @@ func vpnIpsecConnectionFields(add bool) []vpnIpsecField {
 	return []vpnIpsecField{
 		{Arg: vpnIpsecRequired(add, Arg{Name: "description", Help: "description, also the name of the connection", Validate: vpnIpsecNotEmpty}), field: "description"},
 		{Arg: Arg{Name: "disabled", Type: Bool, Help: "keep the connection, but don't load it"}, field: "enabled", kind: vpnIpsecDisabled},
-		vpnIpsecMap(Arg{Name: "version", Help: "IKE version: ike (IKEv1+IKEv2, the default), ikev1 (deprecated) or ikev2"}, "version",
+		vpnIpsecMap(Arg{Name: "version", Help: "IKE version: ikev2 (the default from OPNsense 26.7.8), ike (IKEv1+IKEv2, the default before) or ikev1 (deprecated)"}, "version",
 			[2]string{"ike", "0"}, [2]string{"ikev1", "1"}, [2]string{"ikev2", "2"}),
 		{Arg: Arg{Name: "proposals", Type: List, Validate: vpnIpsecNotEmpty, Help: "IKE proposals like aes256gcm16-sha256-x25519, default for the strongSwan defaults",
 			Complete: vpnIpsecCompleteRef((*ipsec.IPsecApi).ConnectionForm, "proposals", true)}, field: "proposals", kind: vpnIpsecRefList, keys: true},
@@ -195,7 +195,7 @@ func init() {
 	vpnIpsecRegister(&vpnIpsecItems{
 		menu: "vpn/ipsec/connection", help: "IPsec connections: IKE settings of a tunnel or mobile setup (VPN > IPsec > Connections)",
 		noun: "connection", itemHelp: "the #, uuid or description of the connection", prefix: "connection.",
-		addLong: `Fields not given get the OPNsense defaults (enabled, version=ike, proposals=default). A connection
+		addLong: `Fields not given get the OPNsense defaults (enabled, version=ikev2 from 26.7.8, ike before, proposals=default). A connection
 also needs a local and a remote authentication round (/vpn/ipsec/local, /vpn/ipsec/remote) and children
 (/vpn/ipsec/child). The description names the connection: if it exists already, add fails unless replace is
 given, then that connection is replaced completely (fields not given are reset to the defaults, its rounds

@@ -65,6 +65,12 @@ func TestSnapshotListAndGet(t *testing.T) {
 	if _, err := api.SnapshotSupported(); err == nil {
 		t.Error("want an error without supported flag")
 	}
+
+	// 26.7.8 without ZFS: bectl's error object comes back as null rows
+	server.set("GET /api/core/snapshots/search", `{"total":2,"rowCount":2,"current":1,"rows":[null,null]}`)
+	if snapshots, raws, err := api.SnapshotListRaw(); err != nil || len(snapshots) != 0 || len(raws) != 0 {
+		t.Errorf("null rows: want no snapshots, got %+v %q %v", snapshots, raws, err)
+	}
 }
 
 func TestSnapshotMutations(t *testing.T) {

@@ -3,6 +3,8 @@
 package integrationinterfaces
 
 import (
+	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +15,7 @@ import (
 
 	api "opnsense-cli/opnsense/api"
 	"opnsense-cli/opnsense/api/interfaces"
+	"opnsense-cli/opnsense/api/system"
 )
 
 // Assignment tests: a loopback of this run is assigned, renamed, disabled/enabled, applied, unassigned and applied
@@ -77,13 +80,71 @@ func assignmentBaseline() {
 		assignmentStartReason = "assignment changes were staged before this run, they are not applied by tests"
 		return
 	}
-	var hidden, _, hiddenErr = assignmentHidden(ifs)
+	var hidden, list, hiddenErr = assignmentHidden(ifs)
 	if hiddenErr != nil {
 		assignmentStartReason = hiddenErr.Error()
 		return
 	}
+	var unset, unsetErr = assignmentPdLenUnset(core, list)
+	if unsetErr != nil {
+		assignmentStartReason = unsetErr.Error()
+		return
+	}
+	if len(unset) > 0 {
+		assignmentStartReason = fmt.Sprintf("OPNsense 26.7.8 would stage a spurious update of %s with any assignment change "+
+			"(dhcp6-ia-pd-len is missing from their config, one apply of them stores it), the tests can not apply",
+			strings.Join(unset, ", "))
+		return
+	}
 	assignmentStartHidden = hidden
 	assignmentStartClean = true
+}
+
+// assignmentPdLenUnset returns the assigned interfaces that get a spurious staged "update" from ANY assignment
+// change on OPNsense 26.7.8: its model requires dhcp6-ia-pd-len with the default 0 (upstream 5b9fc04efb,
+// 5dd91f6085) and compares the model with config.xml when saving, where interfaces configured before lack the
+// field. An apply of such an interface stores it. Nothing is returned when the model has no default for it
+func assignmentPdLenUnset(core *api.OPNsense, list []interfaces.Assignment) ([]string, error) {
+	var record struct {
+		Interface map[string]json.RawMessage `json:"interface"`
+	}
+	var endpoint = core.EndpointForPluginControllerMethod("interfaces", "assignment", "get_item") + "/lan"
+	if err := core.DoJSON("GET", endpoint, nil, &record); err != nil {
+		return nil, fmt.Errorf("assignment get_item lan: %w", err)
+	}
+	var options map[string]struct {
+		Selected int `json:"selected"`
+	}
+	if raw, found := record.Interface["dhcp6-ia-pd-len"]; !found || json.Unmarshal(raw, &options) != nil || options["0"].Selected != 1 {
+		return nil, nil
+	}
+
+	var content, _, err = (&system.SystemApi{OPNsense: core}).BackupDownload("", "")
+	if err != nil {
+		return nil, fmt.Errorf("reading config.xml: %w", err)
+	}
+	var config struct {
+		Interfaces struct {
+			Items []struct {
+				XMLName xml.Name
+				PdLen   *string `xml:"dhcp6-ia-pd-len"`
+			} `xml:",any"`
+		} `xml:"interfaces"`
+	}
+	if err := xml.Unmarshal(content, &config); err != nil {
+		return nil, fmt.Errorf("parsing config.xml: %w", err)
+	}
+	var stored = map[string]bool{}
+	for _, item := range config.Interfaces.Items {
+		stored[item.XMLName.Local] = item.PdLen != nil
+	}
+	var unset []string
+	for _, assignment := range list {
+		if have, configured := stored[assignment.Identifier]; configured && !have {
+			unset = append(unset, assignment.Identifier)
+		}
+	}
+	return unset, nil
 }
 
 // assignmentOnlyOwnStaged tells whether the staged assignment changes are only those of the given identifiers of
@@ -161,6 +222,8 @@ func sweepAssignments(ifs *interfaces.InterfacesApi) []string {
 func requireOnlyOwnStaged(t *testing.T, ifs *interfaces.InterfacesApi, identifier string) {
 	t.Helper()
 	if reason := assignmentOnlyOwnStaged(ifs, map[string]bool{identifier: true}); reason != "" {
+		// later tests must not stage more on top of this
+		assignmentStartClean, assignmentStartReason = false, "an earlier test found foreign staged changes: "+reason
 		t.Fatalf("not applying the assignment changes: %s", reason)
 	}
 }
@@ -301,10 +364,15 @@ func TestAssignmentLifecycle(t *testing.T) {
 		t.Fatalf("OPNsense must refuse to remove a locked assignment: %v", err)
 	}
 
-	// a new interface is not in config.xml yet (no enable there): disabling it before the apply is a change back
-	// to the "applied" value, OPNsense ignores it
-	var ignored = mustFailOpn(t, "/interface/assignment", "disable", identifier)
-	requireContains(t, ignored, ignored.stderr, "kept the staged")
+	// a new interface is not in config.xml yet (no enable there): before 26.7.8 disabling it before the apply is a
+	// change back to the "applied" value that OPNsense ignores (the CLI reports it); 26.7.8 stages it, then it is
+	// enabled again so the apply below assigns it enabled
+	var disabled = runOpn(t, "/interface/assignment", "disable", identifier)
+	if disabled.exitCode != 0 {
+		requireContains(t, disabled, disabled.stderr, "kept the staged")
+	} else {
+		mustOpn(t, "/interface/assignment", "enable", identifier)
+	}
 
 	// apply the assignment
 	requireOnlyOwnStaged(t, ifs, identifier)

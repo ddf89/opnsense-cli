@@ -62,7 +62,7 @@ func TestKeaReservationExport(t *testing.T) {
 	wantContains(t, "stderr", r.stderr, "there are no reservations, nothing exported")
 
 	var help = f.run("/kea/dhcp4/reservation", "export", "?")
-	wantContains(t, "help", help.stdout, "every field but the subnet (no secrets)", "option_data column stays empty")
+	wantContains(t, "help", help.stdout, "every field but the subnet (no secrets)", "option_data.<option> columns")
 }
 
 func TestKeaReservationImport(t *testing.T) {
@@ -77,7 +77,10 @@ func TestKeaReservationImport(t *testing.T) {
 		wantFailure(t, f.run("/kea/dhcp4/reservation", "import", good),
 			"This adds reservations and overwrites those matching by subnet and MAC address", "confirm=yes")
 		wantFailure(t, f.run("/kea/dhcp4/reservation", "import", keaTransferFile(t, dir, "unknown.csv", "ip_address;mac\n198.51.100.9;x\n"), "confirm=yes"),
-			"unknown columns mac, valid are: ip_address, hw_address, client_id, hostname, description, next_server, option_data, option, subnet")
+			"unknown columns mac, valid are: ip_address, hw_address, client_id, hostname, description, next_server, option_data, "+
+				"option_data.domain_name_servers, option_data.domain_search, option_data.routers, option_data.static_routes, "+
+				"option_data.classless_static_route, option_data.domain_name, option_data.ntp_servers, option_data.time_servers, "+
+				"option_data.tftp_server_name, option_data.boot_file_name, option, subnet")
 		wantFailure(t, f.run("/kea/dhcp6/reservation", "import", keaTransferFile(t, dir, "unknown6.csv", "ip_address;client_id\n2001:db8::9;01:02\n"), "confirm=yes"),
 			"unknown columns client_id, valid are: ip_address, prefix, duid, hw_address, hostname, domain_search, option, description, subnet")
 		var r = f.run("/kea/dhcp4/reservation", "import", keaTransferFile(t, dir, "subnets.csv", "ip_address;hw_address\n"+

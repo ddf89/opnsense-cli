@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	api "opnsense-cli/opnsense/api"
+	"opnsense-cli/opnsense/api/dhcp"
 )
 
 // export / import of the Kea reservations through the binary: export, edit a copy (change a description, add a
@@ -116,12 +117,23 @@ func TestCliKeaReservationTransfer4(t *testing.T) {
 	t.Cleanup(func() { runOpn(t, "", menu, "remove", clientUuid) })
 
 	var exported = transferExport(t, menu)
-	if len(exported.Rows) != 2 || !slices.Equal(exported.Header, []string{"ip_address", "hw_address", "client_id", "hostname", "description", "next_server", "option_data", "option"}) {
+	// 26.7–26.7.1: one empty option_data column; 26.7.2 and later: one option_data.<option> column per option
+	var options = slices.Contains(exported.Header, "option_data.routers")
+	var oldHeader = []string{"ip_address", "hw_address", "client_id", "hostname", "description", "next_server", "option_data", "option"}
+	var newHeader = []string{"ip_address", "hw_address", "client_id", "hostname", "description", "next_server"}
+	for _, option := range dhcp.KeaReservationOptionColumns {
+		newHeader = append(newHeader, "option_data."+option)
+	}
+	newHeader = append(newHeader, "option")
+	if len(exported.Rows) != 2 || !slices.Equal(exported.Header, oldHeader) && !slices.Equal(exported.Header, newHeader) {
 		t.Fatalf("export: %+v", exported)
 	}
 	transferSet(t, exported, hostMac, "description", testLabel("csv changed; by import"))
-	exported.Rows = append(exported.Rows, transferRow(exported, map[string]string{"ip_address": "198.51.100.62", "hw_address": "02:00:5e:10:00:c3",
-		"hostname": hostNew, "description": testLabel("csv new")}))
+	var newRow = map[string]string{"ip_address": "198.51.100.62", "hw_address": "02:00:5e:10:00:c3", "hostname": hostNew, "description": testLabel("csv new")}
+	if options {
+		newRow["option_data.routers"] = "198.51.100.1"
+	}
+	exported.Rows = append(exported.Rows, transferRow(exported, newRow))
 	var file = transferWrite(t, exported)
 
 	mustFailOpn(t, menu, "import", file) // no confirmation non-interactively
@@ -133,6 +145,15 @@ func TestCliKeaReservationTransfer4(t *testing.T) {
 	requireContains(t, show, show.stdout, testLabel("csv changed; by import"), "198.51.100.0/24")
 	show = mustOpn(t, menu, "show", newUuid)
 	requireContains(t, show, show.stdout, "198.51.100.62", "02:00:5e:10:00:c3", "198.51.100.0/24", testLabel("csv new"))
+	if options {
+		// the per-reservation option made the round trip
+		var again = transferExport(t, menu)
+		var routers, _ = again.Column("option_data.routers")
+		var hosts, _ = again.Column("hostname")
+		if i := slices.Index(hosts, hostNew); i < 0 || routers[i] != "198.51.100.1" {
+			t.Errorf("option_data.routers of %s: want 198.51.100.1 after the import, got export %+v", hostNew, again)
+		}
+	}
 	show = mustOpn(t, menu, "show", clientUuid)
 	requireContains(t, show, show.stdout, "01:02:03:c2", "198.51.100.61")
 
