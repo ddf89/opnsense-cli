@@ -1,5 +1,8 @@
 # Builds opn for every pushed tag and publishes the binaries as a GitHub release named like the tag.
 # The tag name is the version compiled into the binary ("opn version"), e.g. git tag 0.3.0 && git push origin 0.3.0
+#
+# The tests and one build job per platform run in parallel; the release job waits for all of them, adds
+# SHA256SUMS and install.sh and publishes. A failing test or build publishes nothing.
 name: release
 
 on:
@@ -7,41 +10,71 @@ on:
     tags: ['*'] # any tag, the existing tags have no v prefix (0.2.1)
 
 permissions:
-  contents: write # create the release and upload its assets
+  contents: read # only the release job writes
+
+env:
+  VERSION: ${{ github.ref_name }}
 
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-
       - name: Test
         run: go test ./...
 
-      - name: Build
+  build:
+    name: build ${{ matrix.asset }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
         # same naming and -ldflags as the Makefile's cross_build (darwin is published as macos)
+        include:
+          - { goos: linux, goarch: amd64, asset: opn-linux-amd64 }
+          - { goos: linux, goarch: arm64, asset: opn-linux-arm64 }
+          - { goos: darwin, goarch: amd64, asset: opn-macos-amd64 }
+          - { goos: darwin, goarch: arm64, asset: opn-macos-arm64 }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags "-X opnsense-cli/cli.Version=$VERSION" -o "dist/${{ matrix.asset }}" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload its assets
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: opn-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums and installer
         run: |
-          mkdir -p dist
-          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-            os=${platform%/*}; arch=${platform#*/}
-            name=$os; [ "$os" = darwin ] && name=macos
-            echo "building dist/opn-$name-$arch"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
-              -ldflags "-X opnsense-cli/cli.Version=$VERSION" -o "dist/opn-$name-$arch" .
-          done
+          chmod +x dist/opn-* # artifacts don't keep the file mode
           (cd dist && sha256sum opn-* > SHA256SUMS && cat SHA256SUMS)
           # the installer: curl -fsSL https://github.com/<repo>/releases/latest/download/install.sh | bash
           cp install.sh dist/
-
       - name: Check version
         run: test "$(./dist/opn-linux-amd64 version)" = "$VERSION"
-
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
