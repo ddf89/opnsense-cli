@@ -11,9 +11,9 @@
         },
         {
             "label": "Build opn",
-            "detail": "go build into dist/opn for the devcontainer's platform",
+            "detail": "build dist/opn-<os>-<arch> for linux, macos and windows on amd64 and arm64 (release names, version from git describe) and dist/SHA256SUMS",
             "type": "shell",
-            "command": "rm -f dist/* ; GOARCH=amd64 GOOS=linux go build -o ${workspaceFolder}/dist/opn-linux-amd64 . ; GOARCH=arm64 GOOS=darwin go build -o ${workspaceFolder}/dist/opn-darwin-aarch-64 .",
+            "command": "set -e; rm -f dist/*; mkdir -p dist; version=$(git describe --tags --always --dirty 2>/dev/null || echo dev); for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do os=$(dirname $platform); arch=$(basename $platform); name=$os; [ $os = darwin ] && name=macos; ext=; [ $os = windows ] && ext=.exe; echo \"building dist/opn-$name-$arch$ext ($version)\"; CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags \"-X opnsense-cli/cli.Version=$version\" -o dist/opn-$name-$arch$ext .; done; (cd dist && sha256sum opn-* > SHA256SUMS && cat SHA256SUMS)",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
