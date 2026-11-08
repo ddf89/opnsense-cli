@@ -98,6 +98,17 @@ hint, and the exit code is 1:
 `opn version` (or `opn --version`) prints the version of opn, the release tag it was built from, without
 contacting the firewall; `version detail` adds the Go version and platform.
 
+`opn completion bash` prints a bash completion script for one-shot commands: TAB completes menu paths, commands,
+argument names and values, including values loaded from the firewall (item names, interfaces, services, ...)
+like TAB in the interactive shell. Load it in the current shell or install it for new ones:
+
+    source <(opn completion bash)
+    opn completion bash > ~/.local/share/bash-completion/completions/opn
+
+`name=opn,opn-linux-amd64` registers it for other program names too. Values from the firewall use the usual
+connection settings (`OPN_URL`, ... or `.env`) and are given up after `OPN_COMPLETE_TIMEOUT` (default 3s), the
+rest always completes. Without candidates bash falls back to file names (for `export`/`import` files).
+
 `opn -v ...` logs every API request (method, URL, status, duration) to stderr, credentials are never logged.
 `opn -h` and `opn <path> ?` show the help. Errors are printed as `error: ...` on stderr with exit code 1
 (2 for an unknown option).
@@ -229,7 +240,7 @@ contacting the firewall; `version detail` adds the Go version and platform.
 | `/ddclient/account` | `print show add set remove enable disable refresh` | Dynamic DNS accounts (plugin os-ddclient): `description= service= username= password= hostnames= check-ip= interface= zone= ttl= disabled`; items: the description; print shows the current address and last update, `print options=service` the services of the backend; passwords are never printed, `refresh` forces an update at the provider (asks for confirmation) |
 | `/ddclient/settings`, `/ddclient/service` | `print set`, `status start stop restart reconfigure` | `enabled verbose allow-ipv6 interval= backend=native\|ddclient` |
 | `/node-exporter/settings`, `/node-exporter/service` | `print set`, `status start stop restart reconfigure` | Prometheus node exporter (plugin os-node_exporter): `enabled listen-address= listen-port= collectors=` |
-| `/` | `import check version` | `import file`; `check` tests the API connection, `version` shows opn's version (see below) |
+| `/` | `import check version completion` | `import file`; `check` tests the API connection, `version` shows opn's version, `completion bash` prints the bash completion script (see below) |
 
 `/ddclient` and `/node-exporter` need their plugin (`/system/firmware/plugin install os-ddclient`,
 `os-node_exporter`); without it they say so. Let the node exporter listen on a LAN address or 127.0.0.1 rather than

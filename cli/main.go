@@ -54,6 +54,10 @@ menu for the following lines, # starts a comment line.`,
 
 // Main runs opn with the command line arguments (without the program name) and returns the exit code
 func Main(argv []string, stdin *os.File, stdout *os.File, stderr *os.File) int {
+	if len(argv) > 0 && argv[0] == completeCommand {
+		// shell completion (see completion.go): only candidates on stdout, never messages
+		return runComplete(NewSession(io.Discard, io.Discard), argv[1:], stdout)
+	}
 	var session = NewSession(stdout, stderr)
 
 	for len(argv) > 0 && strings.HasPrefix(argv[0], "-") && argv[0] != "-" {

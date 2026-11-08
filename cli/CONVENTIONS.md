@@ -43,7 +43,8 @@ Service like menus have plain verb commands: `status`, `start`, `stop`, `restart
   `local=no`), lists are `Type: List` (comma separated, `ip=10.0.0.1,fd00::1`, `ip=` clears).
 - The on/off state of an item is a RouterOS style `disabled` argument (`add … disabled`, `set 0 disabled=no`),
   shown as a DISABLED column in print and a `disabled:` field in show; `enable`/`disable` commands toggle it.
-- Give the item argument a `Complete` function returning the item names, TAB then completes `remove we<TAB>`.
+- Give the item argument a `Complete` function returning the item names, TAB then completes `remove we<TAB>` in the
+  shell and in bash (`opn completion bash`, see completion.go). It must not print anything and should stay quick.
 - Rules that involve several arguments ("timeout only with wait") go into `Command.Check`, which runs before a
   confirmation is asked.
 - Validate everything you can in the argument spec (`Values`, `Validate: ValidateIP`, `ValidatePort`,

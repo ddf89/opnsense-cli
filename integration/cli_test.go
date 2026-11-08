@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -688,4 +689,19 @@ func TestCliErrors(t *testing.T) {
 		var result = mustFailOpn(t, `/dnsmasq host set x description="open`)
 		requireContains(t, result, result.stderr, "quote")
 	})
+}
+
+// TestCliCompletion completes a one-shot line like the bash script does, with item names loaded from the firewall
+func TestCliCompletion(t *testing.T) {
+	var shown = mustOpn(t, "__complete", "opn /interface/assignment show ", "")
+	var candidates = strings.Split(strings.TrimSpace(shown.stdout), "\n")
+	for _, want := range []string{"lan", "wan", "item="} {
+		if !slices.Contains(candidates, want) {
+			t.Errorf("want %q among the candidates, got %q", want, candidates)
+		}
+	}
+	var script = mustOpn(t, "completion", "bash")
+	if !strings.Contains(script.stdout, "complete -o default -F _opn_completion opn") {
+		t.Errorf("unexpected completion script:\n%s", script.stdout)
+	}
 }
