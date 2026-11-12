@@ -653,6 +653,20 @@ func (opn *SystemApi) FirmwarePackageAction(action FirmwareAction, name string) 
 	return opn.firmwareStart(opn.firmwareEndpoint(string(action))+"/"+url.PathEscape(name), fmt.Sprintf("%s of %s", action, name))
 }
 
+// FirmwareSets are the system sets FirmwareReinstallSet reinstalls: the base system and the kernel
+var FirmwareSets = []string{"base", "kernel"}
+
+// FirmwareReinstallSet starts the forced reinstall of the base system or the kernel of the installed version
+// (core/firmware/reinstall/base|kernel: opnsense-update -bf / -kf, the repair for files "audit health" reports as
+// missing or altered) and returns at once, follow it with FirmwareWait. It ends with a reboot; a locked set only
+// writes a message to the log and ends without one
+func (opn *SystemApi) FirmwareReinstallSet(set string) error {
+	if set != "base" && set != "kernel" {
+		return fmt.Errorf("unknown system set %q, use base or kernel", set)
+	}
+	return opn.firmwareStart(opn.firmwareEndpoint(string(FirmwareActionReinstall))+"/"+set, "reinstall of the "+set)
+}
+
 func (opn *SystemApi) firmwareStart(endpoint string, what string) error {
 	var container struct {
 		Status string `json:"status"`

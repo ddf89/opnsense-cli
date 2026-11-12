@@ -242,14 +242,19 @@ func TestFirmwareActions(t *testing.T) {
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionLock, "beep"), "")
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionUnlock, "beep"), "")
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionReinstall, "beep"), `reinstall of beep was not accepted`)
+	server.set("POST /api/core/firmware/reinstall/base", `{"status":"ok","msg_uuid":"u"}`)
+	server.set("POST /api/core/firmware/reinstall/kernel", `{"status":"ok","msg_uuid":"u"}`)
+	coreTestWantError(t, api.FirmwareReinstallSet("base"), "")
+	coreTestWantError(t, api.FirmwareReinstallSet("kernel"), "")
 	var sent = len(server.posts())
+	coreTestWantError(t, api.FirmwareReinstallSet("world"), `unknown system set "world"`)
 	coreTestWantError(t, api.FirmwareStart(FirmwareActionInstall), "needs a package")
 	coreTestWantError(t, api.FirmwareStart("reboot"), "unknown firmware action")
 	coreTestWantError(t, api.FirmwareStart("poweroff"), "unknown firmware action")
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionCheck, "beep"), "not a package action")
 	coreTestWantError(t, api.FirmwarePackageAction(FirmwareActionInstall, "bad name"), "invalid package name")
-	if len(server.posts()) != sent || sent != 14 {
-		t.Errorf("want 14 posts and none for invalid actions, got %v", server.posts())
+	if len(server.posts()) != sent || sent != 16 {
+		t.Errorf("want 16 posts and none for invalid actions, got %v", server.posts())
 	}
 	for _, call := range server.posts() {
 		if call.Body != "" {

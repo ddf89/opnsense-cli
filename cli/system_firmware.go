@@ -20,6 +20,8 @@ const (
 		"reinstall or a boot environment snapshot."
 	systemFirmwareCleanupWarning = "This removes the packages that were installed as dependencies and are no longer " +
 		"needed (pkg autoremove), stale update files and the cached packages."
+	systemFirmwareReinstallWarning = "This downloads and reinstalls the base system or kernel files of the installed " +
+		"version and reboots the firewall."
 )
 
 func init() {
@@ -60,6 +62,17 @@ packages, connection tests the mirror over IPv4 and IPv6 (minutes when one of th
 dependency and are no longer required), opnsense-update -F (stale update files) and pkg clean -a (the cached
 package files). Its log goes to stderr.`,
 			Args: follow, Confirm: systemFirmwareCleanupWarning, Run: systemFirmwareCleanup},
+		&Command{Name: "reinstall", Help: "reinstall the base system or the kernel of the installed version and reboot",
+			Long: `Reinstalls the base system or the kernel of the installed version (opnsense-update -bf / -kf), the
+repair when "audit type=health" reports missing or altered base or kernel files. The set is downloaded again,
+so check first that the root file system has room (a full disk is a common cause of damaged files), then the
+firewall reboots. A locked set is not reinstalled: the command fails with the reason from the log then.
+Packages and plugins are reinstalled with "/system/firmware/package reinstall" and "plugin reinstall".
+
+  reinstall base`,
+			Args: append([]Arg{{Name: "set", Positional: true, Required: true, Values: system.FirmwareSets,
+				Help: "what to reinstall: base (the FreeBSD base system) or kernel"}}, follow...),
+			Confirm: systemFirmwareReinstallWarning, Run: systemFirmwareReinstall},
 		&Command{Name: "update", Help: "install all pending updates (run check first)",
 			Args: follow, Confirm: systemFirmwareUpdateWarning, Run: systemFirmwareUpdate},
 		&Command{Name: "upgrade", Help: "install the pending major upgrade (run check first)",
@@ -234,6 +247,30 @@ func systemFirmwareAudit(c *Context, args *Args) error {
 
 func systemFirmwareCleanup(c *Context, args *Args) error {
 	return systemFirmwareInstall(c, args, system.FirmwareActionCleanup)
+}
+
+// systemFirmwareReinstall reinstalls the base system or the kernel; a successful reinstall ends with a reboot, one
+// that ends without (a locked set) fails with the reason from the log
+func systemFirmwareReinstall(c *Context, args *Args) error {
+	var api, err = systemServiceApi(c)
+	if err != nil {
+		return err
+	}
+	var set = args.String("set")
+	var what = "reinstall of the " + set
+	var progress, runErr = systemFirmwareRun(c, api, what, func() error { return api.FirmwareReinstallSet(set) },
+		systemFirmwareStderr(c), args.Bool("background"), args.Duration("timeout"))
+	if runErr != nil {
+		return systemFirmwareFollowErr(runErr)
+	}
+	systemFirmwareFinished(c, what, progress)
+	if args.Bool("background") || progress.Status == system.FirmwareProgressReboot {
+		return nil
+	}
+	if reason := systemFirmwareLogReason(progress.Log); reason != "" {
+		return fmt.Errorf("the %s ended without a reboot: %s", what, reason)
+	}
+	return fmt.Errorf(`the %s ended without a reboot, see "/system/firmware log"`, what)
 }
 
 func systemFirmwareUpdate(c *Context, args *Args) error {
