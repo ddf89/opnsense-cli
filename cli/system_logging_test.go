@@ -519,6 +519,85 @@ func TestSystemLoggingDestinationSet(t *testing.T) {
 	})
 }
 
+// TestSystemLoggingDestinationSuppress covers the suppress field of OPNsense 26.7.9: shown when the API has it, sent
+// only when given (older versions reject unknown fields), reset to its default by add ... replace
+func TestSystemLoggingDestinationSuppress(t *testing.T) {
+	t.Parallel()
+	const suppressUuid = "d-suppress"
+	var suppressRow = systemLoggingDestinationRow(map[string]any{"uuid": suppressUuid, "description": "dedup", "suppress": "1"})
+
+	t.Run("show and print detail show it when the API has it", func(t *testing.T) {
+		t.Parallel()
+		var f = systemLoggingFake(t, suppressRow)
+		var r = f.run(systemLoggingDest("show", "dedup")...)
+		wantExit(t, r, 0)
+		if got, ok := systemLoggingFields(r.stdout)["suppress"]; !ok || got != "yes" {
+			t.Errorf("suppress: got %q (present %v), want yes\n%s", got, ok, r.stdout)
+		}
+		r = f.run(systemLoggingDest("print", "detail", "search=dedup")...)
+		wantExit(t, r, 0)
+		wantContains(t, "stdout", r.stdout, "suppress:     yes")
+	})
+	t.Run("show leaves it out before 26.7.9", func(t *testing.T) {
+		t.Parallel()
+		var f = systemLoggingFake(t)
+		var r = f.run(systemLoggingDest("show", "siem")...)
+		wantExit(t, r, 0)
+		wantNotContains(t, "stdout", r.stdout, "suppress")
+	})
+	t.Run("add sends it only when given", func(t *testing.T) {
+		t.Parallel()
+		var f = systemLoggingFake(t)
+		f.on("POST", systemLoggingAddDestPath, 200, answerAdded("d-new"))
+		wantExit(t, f.run(systemLoggingDest("add", "hostname=192.0.2.10", "suppress")...), 0)
+		wantJSON(t, wantOneMutation(t, f, "POST", systemLoggingAddDestPath), map[string]any{"destination": map[string]any{
+			"enabled": "1", "transport": "udp4", "program": "", "level": "", "facility": "", "hostname": "192.0.2.10",
+			"certificate": "", "port": "514", "rfc5424": "0", "suppress": "1", "description": "",
+		}})
+	})
+	for _, tc := range []struct {
+		arg  string
+		want string
+	}{{"suppress", "1"}, {"suppress=yes", "1"}, {"suppress=no", "0"}} {
+		t.Run("set "+tc.arg, func(t *testing.T) {
+			t.Parallel()
+			var f = systemLoggingFake(t, suppressRow)
+			f.on("GET", systemLoggingGetDestPath+suppressUuid, 200, systemLoggingDestinationGet("dedup"))
+			f.on("POST", systemLoggingSetDestPath+suppressUuid, 200, answerSaved)
+			wantExit(t, f.run(systemLoggingDest("set", "dedup", tc.arg)...), 0)
+			wantJSON(t, wantOneMutation(t, f, "POST", systemLoggingSetDestPath+suppressUuid),
+				map[string]any{"destination": map[string]any{"suppress": tc.want}})
+		})
+	}
+	t.Run("invalid value, no API call", func(t *testing.T) {
+		t.Parallel()
+		var f = systemLoggingFake(t)
+		wantFailure(t, f.run(systemLoggingDest("set", "siem", "suppress=maybe")...), "suppress")
+		wantNoCalls(t, f)
+	})
+	t.Run("replace resets it to its default", func(t *testing.T) {
+		t.Parallel()
+		var f = systemLoggingFake(t, suppressRow)
+		f.on("GET", systemLoggingGetDestPath+suppressUuid, 200, systemLoggingDestinationGet("dedup"))
+		f.on("POST", systemLoggingSetDestPath+suppressUuid, 200, answerSaved)
+		wantExit(t, f.run(systemLoggingDest("add", "hostname=192.0.2.11", "description=dedup", "replace")...), 0)
+		var body = wantOneMutation(t, f, "POST", systemLoggingSetDestPath+suppressUuid).json(t)
+		if got := body["destination"].(map[string]any)["suppress"]; got != "0" {
+			t.Errorf("suppress: got %v, want 0", got)
+		}
+	})
+	t.Run("replace keeps it out before 26.7.9", func(t *testing.T) {
+		t.Parallel()
+		var f = systemLoggingFake(t)
+		f.on("POST", systemLoggingSetDestPath+systemLoggingDestUuid, 200, answerSaved)
+		wantExit(t, f.run(systemLoggingDest("add", "hostname=192.0.2.11", "description=siem", "replace")...), 0)
+		var body = wantOneMutation(t, f, "POST", systemLoggingSetDestPath+systemLoggingDestUuid).json(t)
+		if _, found := body["destination"].(map[string]any)["suppress"]; found {
+			t.Errorf("suppress must not be sent to a version without it: %v", body)
+		}
+	})
+}
+
 func TestSystemLoggingDestinationRemoveEnableDisable(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

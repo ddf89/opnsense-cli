@@ -194,6 +194,36 @@ func TestCliLogging(t *testing.T) {
 	}
 }
 
+func TestCliLoggingSuppress(t *testing.T) {
+	var sys = systemApi(t)
+	requireSuppress(t, sys)
+	var description = testDescription("cli-dest-suppress")
+
+	var created = mustOpn(t, "/system/logging/destination", "add", "disabled", "hostname="+safeSyslogHost,
+		"suppress", "description="+description)
+	var uuid = uuidFrom(t, created)
+	cleanupDestination(t, sys, uuid)
+	if destination, err := sys.LoggingDestinationGet(uuid); err != nil || destination.Enabled != "0" || destination.Suppress != "1" {
+		t.Fatalf("after add: %+v, %v", destination, err)
+	}
+	var shown = mustOpn(t, "/system/logging/destination", "show", description)
+	requireContains(t, shown, shown.stdout, "suppress:", "yes")
+	var detail = mustOpn(t, "/system/logging/destination", "print", "detail", "search="+description)
+	requireContains(t, detail, detail.stdout, "suppress:", "yes")
+
+	requireNoStdout(t, mustOpn(t, "/system/logging/destination", "set", description, "suppress=no"))
+	if destination, _ := sys.LoggingDestinationGet(uuid); destination.Suppress != "0" || destination.Enabled != "0" {
+		t.Errorf("after set suppress=no: %+v", destination)
+	}
+	requireNoStdout(t, mustOpn(t, "/system/logging/destination", "set", description, "suppress"))
+	// a complete replacement resets suppress to its default
+	mustOpn(t, "/system/logging/destination", "add", "disabled", "hostname="+safeSyslogHost, "description="+description, "replace")
+	if destination, _ := sys.LoggingDestinationGet(uuid); destination.Suppress != "0" || destination.Enabled != "0" {
+		t.Errorf("after add replace: %+v", destination)
+	}
+	requireNoStdout(t, mustOpn(t, "/system/logging/destination", "remove", description))
+}
+
 func TestCliBackup(t *testing.T) {
 	var sys = systemApi(t)
 	var providers = mustOpn(t, "/system/backup", "providers")
