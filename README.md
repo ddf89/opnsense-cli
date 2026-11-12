@@ -15,7 +15,7 @@ Covered (everything OPNsense 26.7 exposes through its MVC API, legacy PHP pages 
 - **VPN**: OpenVPN (instances, static keys, client overrides, sessions, client export), IPsec (connections,
   authentication rounds, children, pools, VTIs, keys, sessions, SAD/SPD), WireGuard (instances, peers incl.
   client config generator, status)
-- **Interfaces**: VLAN, LAGG, bridge, GIF, GRE, VXLAN, loopback devices, virtual IPs / CARP, static neighbors,
+- **Interfaces**: VLAN, LAGG, bridge, GIF, GRE, VXLAN, loopback and TAP (26.7.9+) devices, virtual IPs / CARP, static neighbors,
   settings, overview, ARP/NDP tables, netstat, host discovery, counters and throughput
 - **System**: users, groups, privileges, API keys, services, firmware and packages, HA sync, snapshots, cron,
   tunables, logging, backups, factory defaults, gateways, routes, trust (CAs, certificates, CRLs), health
@@ -153,7 +153,7 @@ rest always completes. Without candidates both shells fall back to file names (f
 | `/dnsmasq/range` | `print show add set remove` | DHCP ranges: `interface= start= end= subnet-mask= lease-time= mode=static prefix-len= ra-mode= set-tag= domain=` |
 | `/dnsmasq/option` | `print show add set remove codes` | DHCP options: `type=set\|match option= option6= interface= tag= set-tag= value= force`; `codes` lists the option names |
 | `/dnsmasq/tag`, `/dnsmasq/boot` | `print show add set remove` | DHCP tags `name=`; boot/PXE entries `interface= tag= filename= servername= address=`; tags are given by name |
-| `/kea/dhcp4/subnet`, `/kea/dhcp6/subnet` | `print show add set remove` | `subnet= pools= description= valid-lifetime= auto-options routers= dns-servers= domain-name= ...` (v6: `interface= pd-allocator= ...`); items: the network or description |
+| `/kea/dhcp4/subnet`, `/kea/dhcp6/subnet` | `print show add set remove` | `subnet= pools= description= valid-lifetime= auto-options routers= dns-servers= domain-name= ...` (v4: `interface= match-code= match-encoding= match-data=` for shared networks, 26.7.9+; v6: `interface= pd-allocator= ...`); items: the network or description |
 | `/kea/dhcp4/reservation`, `/kea/dhcp6/reservation` | `print show add set remove export import` | `ip-address= mac-address= client-id= hostname= description=` (v6: `duid= prefix=`), the subnet is found from the address; items: hostname, MAC or IP. `export`/`import`: CSV like the GUI, matched by subnet + MAC (v6: + DUID); the subnet comes from the address or an optional `subnet` column (network, description or uuid), rows without one refuse the file. The export leaves out the subnet; the v4 reservation's own DHCP options are `option_data.<option>` columns (OPNsense 26.7.2 and later) |
 | `/kea/dhcp4/option`, `/kea/dhcp6/option`, `/kea/dhcp6/pd-pool` | `print show add set remove` | custom options `code= encoding= data= force`; prefix delegation pools `subnet= prefix= delegated-length=` |
 | `/kea/dhcp4/peer`, `/kea/dhcp6/peer` | `print show add set remove` | HA peers: `name= role=primary\|standby url=` |
@@ -162,16 +162,17 @@ rest always completes. Without candidates both shells fall back to file names (f
 | `/kea/service`, `/radvd/service` | `status start stop restart reconfigure` | stop and restart ask for confirmation |
 | `/dhcrelay/destination`, `/dhcrelay/relay` | `print show add set remove` (`enable disable`) | destinations `name= servers=`; relays `interface= destination= agent-info disabled` |
 | `/dhcrelay/service` | `reconfigure` | |
-| `/radvd/entry` | `print show add set remove enable disable` | router advertisements, one per interface: `interface= mode= dns-servers= dns-search= routes= min-interval= max-interval= disabled` |
+| `/radvd/entry` | `print show add set remove enable disable` | router advertisements, one per interface: `interface= mode= dns-servers= dns-search= routes= min-interval= max-interval= nat64-prefix= nat64-prefix-lifetime= disabled` |
 | `/system/cron` | `print show add set remove enable disable commands apply` | `description= command= parameters= minutes= hours= days= months= weekdays= who= disabled`; items: the description |
 | `/system/tunable` | `print show add set remove apply` | `name= value= description=`, `print changed`; items: the tunable name |
 | `/system/logging` | `print set stats` | `set enabled= local= max-preserve= max-file-size=` |
-| `/system/logging/destination` | `print show add set remove enable disable` | `hostname= transport= port= program= level= facility= certificate= rfc5424 description= disabled`; items: the description |
+| `/system/logging/destination` | `print show add set remove enable disable` | `hostname= transport= port= program= level= facility= certificate= rfc5424 suppress description= disabled`; items: the description; `suppress` needs 26.7.9+ |
 | `/system/logging/service` | `status restart reconfigure` | |
 | `/system/backup` | `print providers download diff revert remove` | `provider=`, `download [item] file= overwrite`, `diff from= to=`; items: backup ids like `config-1792886029.2372.xml`, `current` |
 | `/system/defaults` | `print reset` | |
 | `/system/wizard` | `print` | read-only, passwords are never shown |
 | `/system` | `reboot shutdown` | `reboot wait timeout= poll-interval=` |
+| `/system/status` | `print show dismiss` | system notices (the bell of the web GUI): subject, severity, time, message; persistent notices (full disk) can't be dismissed, dismissing `crashreporter` deletes the crash reports and asks for confirmation |
 | `/system/resource` | `print monitor` | versions, uptime, memory, disks, ...; `monitor` streams the CPU usage, `once` |
 | `/system/activity` | `print` | top: `lines= follow interval=` |
 | `/system/user` | `print show add set remove enable disable password export import` | `name= password= full-name= email= groups= privileges= shell= expires= disabled`; `password` asks without echo; root and the user of the API key can't be removed or disabled. `export`/`import`: CSV like the GUI, matched by name; no passwords or keys (new users get a random password); the import refuses rows for root, the API key's user, `page-all` or admin groups, and API keys |
@@ -179,7 +180,7 @@ rest always completes. Without candidates both shells fall back to file names (f
 | `/system/group` | `print show add set remove` | `name= description= members= privileges= source-networks=`; the admins group is protected |
 | `/system/privilege` | `print show grant revoke` | `print user= group= granted`, `grant <privilege> user= group=` |
 | `/system/service` | `print show start stop restart` | all services (System > Diagnostics > Services); stopping a running service and restarting webgui, configd, openssh, pf or routing ask for confirmation |
-| `/system/firmware` | `status check audit update upgrade cleanup log` | `audit type=security\|health\|connection`; `cleanup` removes unused dependency packages (pkg autoremove), stale update files and the package cache (asks); actions run on the firewall, opn follows their log (`background` only starts them) |
+| `/system/firmware` | `status check audit update upgrade cleanup reinstall log` | `audit type=security\|health\|connection`; `cleanup` removes unused dependency packages (pkg autoremove), stale update files and the package cache (asks); `reinstall base\|kernel` reinstalls the base system or kernel of the installed version and reboots (the repair for files `audit type=health` reports as altered, asks); actions run on the firewall, opn follows their log (`background` only starts them) |
 | `/system/firmware/package`, `/system/firmware/plugin` | `print show license install remove reinstall lock unlock` (plugin: also `sync resync`) | `print all`; everything that changes packages asks for confirmation. `plugin sync` installs configured plugins that are missing, `plugin resync` makes the configured plugin list match the installed plugins (configuration only); `plugin print`/`show` warn about installed plugins that aren't registered (no `C` flag) and configured plugins that are missing |
 | `/system/firmware/changelog`, `/system/firmware/settings` | `print show`, `print set` | settings: `mirror= flavour= type= subscription=` (masked) |
 | `/system/ha` | `print set apply status sync` | High Availability: `pfsync-interface= pfsync-peer-ip= synchronize-to-ip= username= password= sync-items=`; `/system/ha/service` controls services on the backup node |
@@ -228,7 +229,7 @@ rest always completes. Without candidates both shells fall back to file names (f
 | `/vpn/wireguard/instance` | `print show add set remove enable disable` | `name= port= tunnel-address= peers= mtu= dns= disable-routes gateway= disabled`; the key pair is generated unless `private-key=`, private keys are never shown |
 | `/vpn/wireguard/peer` | `print show add set remove enable disable generate config` | `name= public-key= psk= generate-psk tunnel-address= endpoint-address= endpoint-port= keepalive= instances=`; `generate` creates a peer with a new key pair and writes its client .conf |
 | `/vpn/wireguard/settings`, `status`, `service` | `print set`, `print`, `status start stop restart reconfigure` | the global enable switch; `wg show` with handshakes and transfer (`follow`) |
-| `/captive-portal/zone` | `print show add set remove enable disable` | `description= interfaces= auth-servers= idle-timeout= hard-timeout= concurrent-logins roaming certificate=`; zones are added disabled, `enable` asks for confirmation |
+| `/captive-portal/zone` | `print show add set remove enable disable` | `description= interfaces= auth-servers= idle-timeout= hard-timeout= concurrent-logins roaming certificate= cors-policy=same_origin\|listed\|any cors-origins=`; zones are added disabled, `enable` asks for confirmation |
 | `/captive-portal/template` | `print show set remove upload download download-default` | login page templates as zip files |
 | `/captive-portal/session`, `voucher` | `print disconnect`, `providers groups print generate expire drop-expired drop-group` | logged in clients (`zone= follow`); vouchers: `generate` writes a CSV |
 | `/captive-portal/service` | `status start stop restart reconfigure` | |
@@ -242,7 +243,7 @@ rest always completes. Without candidates both shells fall back to file names (f
 | `/interface` | `print monitor-traffic` | `print`: counters since boot; `monitor-traffic interface= interval= once` |
 | `/interface/vlan` | `print show add set remove apply` | `parent= tag= pcp= proto=auto\|802.1q\|802.1ad name= description=`; items: the device name (vlan01) or description |
 | `/interface/lagg`, `bridge` | `print show add set remove apply` | lagg `members= protocol= lacp-fast-timeout hash= mtu=`, bridge `members= stp protocol=rstp\|stp span= ...`; apply asks for confirmation |
-| `/interface/gif`, `gre`, `vxlan`, `loopback` | `print show add set remove apply` | tunnels `local-address= remote-address= tunnel-local-address= tunnel-remote-address=`, vxlan `vni= remote-address= group= interface=`, loopback `description=` |
+| `/interface/gif`, `gre`, `vxlan`, `loopback`, `tap` | `print show add set remove apply` | tunnels `local-address= remote-address= tunnel-local-address= tunnel-remote-address=`, vxlan `vni= remote-address= group= interface=`, loopback and tap (OPNsense 26.7.9+) `description=`; assigned loopback, TAP and VXLAN devices can't be removed (unassign them first) |
 | `/interface/vip` | `print show add set remove apply` | virtual IPs: `interface= mode=ipalias\|carp\|proxyarp address= vhid= password= adv-base= adv-skew=`; the CARP password is never shown. `/interface/vip-status` shows CARP status and toggles maintenance mode (asks for confirmation) |
 | `/interface/neighbor` | `print show add set remove apply` | static ARP/NDP entries: `address= mac-address= description=` |
 | `/interface/settings` | `print set apply` | offloading, VLAN hardware filter, IPv6 and DHCPv6 settings; apply reconfigures all interfaces and asks for confirmation |
@@ -375,7 +376,7 @@ GUI for these.
 - streaming commands (`/log print follow`, `/firewall/log print follow|stream`, `/interface monitor-traffic`,
   `/system/resource monitor`, `/system/activity print follow`, `/tool torch`, `/system/gateway monitor`,
   `/firewall/state print follow`, `/vpn/openvpn/session print follow`, ...) run until Ctrl-C, reconnect dropped
-  streams and exit 0 when stopped. `once` (monitors) prints a single measurement, `json` the raw events.
+  streams (also when OPNsense 26.7.9+ has no free stream slot) and exit 0 when stopped. `once` (monitors) prints a single measurement, `json` the raw events.
   Views that refresh (monitors, `print follow` of states, sessions, activity, ...) redraw in place on a terminal
   and write a `--- time` line before every refresh when piped; log and alert streams (`/log`, `/firewall/log`,
   `/ids/alert print follow`) keep appending new lines
