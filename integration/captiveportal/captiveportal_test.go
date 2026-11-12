@@ -203,6 +203,41 @@ func TestCliZoneAndTemplate(t *testing.T) {
 	}
 }
 
+// TestCliZoneCors sets the CORS policy of a disabled zone (OPNsense 26.7.9+); nothing is applied
+func TestCliZoneCors(t *testing.T) {
+	var cp = testApi(t)
+	var options, err = cp.ZoneOptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, known := options["corsPolicy"]; !known {
+		t.Skip("this OPNsense has no CORS policy for zones (26.7.9+)")
+	}
+	var description = testDescription("cli cors")
+	var uuid = uuidFrom(t, mustOpn(t, zoneMenu, "add", "description="+description, "interfaces=LAN", "cors-policy=listed",
+		"cors-origins=https://Login.Example.com:443,http://192.0.2.1:8000"))
+	cleanupZone(t, cp, uuid)
+	requireZoneDisabled(t, cp, uuid)
+	// OPNsense stores the origins canonical (lower case, without the default port)
+	var result = mustOpn(t, zoneMenu, "show", description)
+	requireContains(t, result, result.stdout, "cors-policy:             listed", "https://login.example.com", "http://192.0.2.1:8000")
+	if zone, err := cp.ZoneGet(uuid); err != nil || zone.CorsPolicy != "listed" || !strings.Contains(zone.CorsOrigins, "https://login.example.com") {
+		t.Errorf("zone %+v %v", zone, err)
+	}
+	result = mustFailOpn(t, zoneMenu, "set", description, "cors-origins=https://login.example.com/portal")
+	requireContains(t, result, result.stderr, "cors-origins")
+	requireNoStdout(t, mustOpn(t, zoneMenu, "set", description, "cors-policy=same_origin", "cors-origins="))
+	result = mustOpn(t, zoneMenu, "show", description)
+	requireContains(t, result, result.stdout, "cors-policy:             same_origin")
+	// replace resets the policy to the default
+	mustOpn(t, zoneMenu, "add", "description="+description, "interfaces=LAN", "replace")
+	if zone, err := cp.ZoneGet(uuid); err != nil || zone.CorsPolicy != "any" || zone.CorsOrigins != "" {
+		t.Errorf("after replace %+v %v", zone, err)
+	}
+	requireZoneDisabled(t, cp, uuid)
+	requireNoStdout(t, mustOpn(t, zoneMenu, "remove", description))
+}
+
 func TestSessionsServiceVouchers(t *testing.T) {
 	var cp = testApi(t)
 	if _, err := cp.SessionList(""); err != nil {

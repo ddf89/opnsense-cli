@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	coreapi "opnsense-cli/opnsense/api"
@@ -78,6 +80,13 @@ func captivePortalZoneFields(add bool) []captivePortalZoneField {
 		{Arg{Name: "extended-pre-auth-data", Type: Bool, Help: "pass more client data to the login page"}, "extendedPreAuthData", captivePortalZoneFlag},
 		{Arg{Name: "template", Complete: captivePortalTemplateItemNames,
 			Help: "custom login page (template name), empty for the default"}, "template", captivePortalZoneTemplate},
+		// OPNsense 26.7.9+, only sent when given
+		{Arg{Name: "cors-policy", Values: captiveportal.ZoneCorsPolicies, Validate: captivePortalZoneValidatePolicy,
+			Help: "which web pages (browser origins) may read the answers of the portal's access API: any (the default, also of zones saved before 26.7.9), listed (only cors-origins) or same_origin; clients without an Origin header are not affected (26.7.9+)"},
+			"corsPolicy", captivePortalZonePlain},
+		{Arg{Name: "cors-origins", Type: List, Validate: captivePortalZoneValidateOrigins,
+			Help: "origins allowed with cors-policy=listed: scheme, host and optional port without a path, like https://login.example.com (26.7.9+)"},
+			"corsOrigins", captivePortalZoneList},
 	}
 }
 
@@ -151,6 +160,32 @@ func captivePortalZoneValidateMinutes(value string) error {
 func captivePortalZoneValidateServerName(value string) error {
 	if len(value) > 1024 || !captivePortalZoneServerNamePattern.MatchString(value) {
 		return fmt.Errorf("must be a host name or address (letters, digits, . , _ -), got %q", value)
+	}
+	return nil
+}
+
+func captivePortalZoneValidatePolicy(value string) error {
+	if value == "" {
+		return errors.New("must not be empty, leave it out to keep the current value (any is the default)")
+	}
+	return nil
+}
+
+// captivePortalZoneValidateOrigins accepts HTTP origins like OPNsense's OriginField: http or https, a host and an
+// optional port, nothing else (no path, query, fragment or user)
+func captivePortalZoneValidateOrigins(value string) error {
+	for _, element := range splitList(value) {
+		var origin, err = url.Parse(element)
+		var valid = err == nil && (strings.EqualFold(origin.Scheme, "http") || strings.EqualFold(origin.Scheme, "https")) &&
+			origin.Hostname() != "" && origin.Opaque == "" && origin.User == nil && origin.Path == "" && origin.RawQuery == "" &&
+			origin.Fragment == "" && !origin.ForceQuery && !strings.HasSuffix(element, "#")
+		if valid && origin.Port() != "" {
+			var port, portErr = strconv.Atoi(origin.Port())
+			valid = portErr == nil && port >= 1 && port <= 65535
+		}
+		if !valid {
+			return fmt.Errorf("must be origins like https://login.example.com or http://192.0.2.1:8000 (scheme, host and optional port, no path), got %q", element)
+		}
 	}
 	return nil
 }
@@ -268,7 +303,7 @@ func captivePortalZoneFieldsOf(api *captiveportal.CaptivePortalApi, args *Args, 
 			}
 			fields[spec.field] = uuid
 		default:
-			fields[spec.field] = value
+			fields[spec.field] = keaCanonical(spec.Values, value)
 		}
 	}
 	return fields, nil
@@ -307,6 +342,8 @@ func captivePortalZoneDetail(zone captiveportal.Zone, options map[string][]capti
 		{"allowed-macs", zone.AllowedMACAddresses},
 		{"extended-pre-auth-data", YesNo(zone.ExtendedPreAuthData)},
 		{"template", template},
+		{"cors-policy", zone.CorsPolicy},
+		{"cors-origins", zone.CorsOrigins},
 	}
 }
 
@@ -435,6 +472,14 @@ func captivePortalZoneAdd(c *Context, args *Args) error {
 	var replacement = captiveportal.ZoneFields{}
 	for name, value := range captivePortalZoneDefaults {
 		replacement[name] = value
+	}
+	// the CORS fields exist since 26.7.9: reset them only where OPNsense has them
+	var options, optionsErr = api.ZoneOptions()
+	if optionsErr != nil {
+		return optionsErr
+	}
+	if _, known := options["corsPolicy"]; known {
+		replacement["corsPolicy"], replacement["corsOrigins"] = "any", ""
 	}
 	for name, value := range fields {
 		replacement[name] = value

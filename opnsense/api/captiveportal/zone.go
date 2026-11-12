@@ -46,6 +46,10 @@ type Zone struct {
 	// Template is the uuid of a custom template, "" for the default portal page
 	Template    string `json:"template"`
 	Description string `json:"description"`
+	// CorsPolicy says which browser origins may read the answers of the portal's access API (26.7.9+, empty before):
+	// same_origin, listed (only CorsOrigins, comma separated like https://login.example.com) or any (the default)
+	CorsPolicy  string `json:"corsPolicy"`
+	CorsOrigins string `json:"corsOrigins"`
 }
 
 // ZoneFields holds a partial zone for ZoneCreate / ZoneUpdate keyed by the API field name (see ZoneFieldNames)
@@ -54,7 +58,10 @@ type ZoneFields map[string]string
 // ZoneFieldNames are the writable fields of a zone
 var ZoneFieldNames = []string{"enabled", "interfaces", "disableRules", "authservers", "roaming", "alwaysSendAccountingReqs",
 	"authEnforceGroup", "idletimeout", "hardtimeout", "concurrentlogins", "certificate", "servername", "allowedAddresses",
-	"allowedMACAddresses", "extendedPreAuthData", "template", "description"}
+	"allowedMACAddresses", "extendedPreAuthData", "template", "description", "corsPolicy", "corsOrigins"}
+
+// ZoneCorsPolicies are the values of the zone field corsPolicy (26.7.9+), the last one is the default
+var ZoneCorsPolicies = []string{"same_origin", "listed", "any"}
 
 func zoneName(uuid string) string {
 	return "captive portal zone " + uuid
