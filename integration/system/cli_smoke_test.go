@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -222,6 +223,40 @@ func TestCliLoggingSuppress(t *testing.T) {
 		t.Errorf("after add replace: %+v", destination)
 	}
 	requireNoStdout(t, mustOpn(t, "/system/logging/destination", "remove", description))
+}
+
+// TestCliStatus reads the system notices. Nothing is dismissed: only a persistent notice (refused by the CLI
+// before any request) and an unknown subject (refused by OPNsense) are tried
+func TestCliStatus(t *testing.T) {
+	var sys = systemApi(t)
+	var notices, err = sys.StatusNotices()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var printed = mustOpn(t, "/system/status", "print")
+	requireContains(t, printed, printed.stdout, "SUBJECT", "SEVERITY", "MESSAGE")
+	var lines = mustOpn(t, "/system/status", "print", "json")
+	if got := strings.Count(lines.stdout, "\n"); got != len(notices) {
+		t.Errorf("print json: %d lines, %d notices:\n%s", got, len(notices), lines)
+	}
+	mustOpn(t, "/system/status", "print", "detail")
+	if len(notices) == 0 {
+		requireContains(t, printed, printed.stderr, "no pending notices")
+	}
+	for i, notice := range notices {
+		requireContains(t, printed, printed.stdout, notice.Subject, notice.Status)
+		var shown = mustOpn(t, "/system/status", "show", notice.Subject)
+		requireContains(t, shown, shown.stdout, "title:", notice.Title, "dismissable:")
+		if notice.Persistent {
+			var refused = mustFailOpn(t, "/system/status", "dismiss", strconv.Itoa(i), "confirm=yes")
+			requireContains(t, refused, refused.stderr, "persistent")
+		}
+	}
+	mustFailOpn(t, "/system/status", "show", "a8-no-such-notice")
+	if err := sys.StatusDismiss("a8-no-such-notice"); err == nil {
+		t.Errorf("dismissing an unknown notice: want an error")
+	}
 }
 
 func TestCliBackup(t *testing.T) {
