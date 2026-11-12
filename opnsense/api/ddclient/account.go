@@ -115,7 +115,8 @@ func (opn *DdclientApi) AccountProtocol(uuid string) (string, error) {
 }
 
 // AccountOptions returns the choices of the option fields of a new account (see AccountOptionFields): the
-// services and check methods depend on the backend, the interfaces on the firewall
+// services and check methods depend on the backend, the interfaces on the firewall. A field without choices has
+// none: the native backend offers no services when configd does not answer its service list
 func (opn *DdclientApi) AccountOptions() (map[string][]Option, error) {
 	var answer struct {
 		Account map[string]json.RawMessage `json:"account"`

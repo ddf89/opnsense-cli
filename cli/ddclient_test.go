@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -140,6 +141,71 @@ func TestDdclientAccountChange(t *testing.T) {
 	wantFailure(t, refused.run("/ddclient/account", "set", "home", "check-ip=if"), "check-ip=if needs an interface")
 	wantFailure(t, refused.run("/ddclient/account", "set", "office", "interface="), "check-ip=if needs an interface")
 	wantNoMutations(t, refused)
+}
+
+// ddclientNoServicesFake answers the service choices as OPNsense does when configd gives the native backend no
+// service list: [] (an empty PHP array, seen on 26.7.9_1) or null
+func ddclientNoServicesFake(t *testing.T, services string) *fakeOPN {
+	t.Helper()
+	var f = ddclientFake(t)
+	f.on("GET", "/api/dyndns/accounts/get_item", 200, strings.Replace(ddclientOptions,
+		`"service":{"dyndns2":{"value":"dyndns2","selected":0},"cloudflare":{"value":"Cloudflare","selected":0}}`, `"service":`+services, 1))
+	f.on("GET", "/api/dyndns/settings/get", 200, `{"ddclient":{"general":{"enabled":"1","verbose":"0","allowipv6":"0",`+
+		`"daemon_delay":"300","backend":{"ddclient":{"value":"ddclient","selected":0},"opnsense":{"value":"native","selected":1}}}}}`)
+	f.on("POST", "/api/dyndns/accounts/set_item/"+ddclientAccountUuid, 200,
+		`{"result":"failed","validations":{"account.service":"A service type is required."}}`)
+	f.on("POST", "/api/dyndns/accounts/add_item", 200, `{"result":"failed","validations":{"account.service":"A service type is required."}}`)
+	return f
+}
+
+func TestDdclientAccountNoServices(t *testing.T) {
+	t.Parallel()
+	const hint = "OPNsense offers no services for the native backend (the plugin's service list is empty; check configd)"
+	for _, services := range []string{`[]`, `null`} {
+		var f = ddclientNoServicesFake(t, services)
+		wantFailure(t, f.run("/ddclient/account", "print", "options=service"), hint)
+		wantFailure(t, f.run("/ddclient/account", "print", "options=service", "json"), hint)
+		// the other option fields still decode
+		var checkip = f.run("/ddclient/account", "print", "options=check-ip")
+		wantExit(t, checkip, 0)
+		wantContains(t, "options "+services, checkip.stdout, "web_icanhazip", "Interface [IPv4]")
+		wantExit(t, f.run("/ddclient/account", "print", "options=interface"), 0)
+
+		// service= can't be checked: refused before anything is sent
+		wantFailure(t, f.run("/ddclient/account", "add", "description=x", "service=dyndns2", "hostnames=x.example.com",
+			"check-ip=web_icanhazip"), `service: can not check "dyndns2", OPNsense would refuse it`, hint)
+		wantFailure(t, f.run("/ddclient/account", "set", "home", "service=cloudflare"), `service: can not check "cloudflare"`, hint)
+		// still checked: the other option fields
+		wantFailure(t, f.run("/ddclient/account", "set", "home", "check-ip=nope"), `check-ip: unknown value "nope"`)
+		wantNoMutations(t, f)
+
+		// OPNsense refuses every account then, also changes without service=: its message gets the reason
+		wantFailure(t, f.run("/ddclient/account", "set", "home", "ttl=60"), "A service type is required.", hint)
+		wantFailure(t, f.run("/ddclient/account", "disable", "home"), "A service type is required.", hint)
+
+		var session = fakeSession(t, f)
+		for line, want := range map[string][]string{
+			"/ddclient/account add service=":  nil,
+			"/ddclient/account add check-ip=": {"check-ip=if", "check-ip=web_icanhazip"},
+		} {
+			if got, _ := session.Complete(line); !reflect.DeepEqual(got, want) {
+				t.Errorf("%s: Complete(%q) = %q, want %q", services, line, got, want)
+			}
+		}
+	}
+
+	// without the settings the backend is not named
+	var nosettings = ddclientNoServicesFake(t, `[]`)
+	nosettings.on("GET", "/api/dyndns/settings/get", 500, `{"errorMessage":"Unexpected error"}`)
+	wantFailure(t, nosettings.run("/ddclient/account", "print", "options=service"), "no services for the current backend")
+
+	// with services a refusal of the service is passed on as it is
+	var f = ddclientFake(t)
+	f.on("POST", "/api/dyndns/accounts/set_item/"+ddclientAccountUuid, 200,
+		`{"result":"failed","validations":{"account.service":"A service type is required."}}`)
+	var r = f.run("/ddclient/account", "set", "home", "ttl=60")
+	wantFailure(t, r, "A service type is required.")
+	wantNotContains(t, "stderr", r.stderr, "check configd")
 }
 
 func TestDdclientAccountRefresh(t *testing.T) {
