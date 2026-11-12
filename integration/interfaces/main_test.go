@@ -17,9 +17,9 @@
 // (192.0.2.0/24, 198.51.100.0/24) and never the WAN subnet; VLANs are created on vtnet0 (LAN) with a tag of 4000 or
 // higher, virtual IPs only on lo0, GIF/GRE tunnels with a documentation local address. Nothing is ever put into a
 // LAGG or bridge (the only candidates are the LAN/WAN devices), the interface settings are never changed (settings:
-// one field is set and restored without applying). Assignments: only a loopback of this run is assigned (description
-// a5_if_<run id>…), lan and wan are never touched, and the assignment apply only runs when nothing but this run's
-// assignment is staged (see assignmentOnlyOwnStaged). Apply is only run for VLANs, loopbacks,
+// one field is set and restored without applying). Assignments: only a loopback or TAP of this run is assigned
+// (description a5_if_<run id>…), lan and wan are never touched, and the assignment apply only runs when nothing but this run's
+// assignment is staged (see assignmentOnlyOwnStaged). Apply is only run for VLANs, loopbacks, TAPs,
 // VXLANs, virtual IPs and neighbors (scoped to their own device type, see the OPNsense scripts) and only while every
 // configured item of that type belongs to this run; LAGG, bridge, GIF, GRE and settings apply and the interface
 // reload are tested with fakes only. TestMain finally sweeps (only) the records of this run.
@@ -188,7 +188,7 @@ func ownedByRun(kind interfaces.Kind, item interfaces.Item) bool {
 
 // liveApplied are the kinds the tests apply live, the sweep applies them again after removing leftovers when no
 // other items of the kind exist
-var liveApplied = []interfaces.Kind{interfaces.Vlans, interfaces.Loopbacks, interfaces.Vxlans, interfaces.Vips, interfaces.Neighbors}
+var liveApplied = []interfaces.Kind{interfaces.Vlans, interfaces.Loopbacks, interfaces.Taps, interfaces.Vxlans, interfaces.Vips, interfaces.Neighbors}
 
 // sweep removes every item (and only those) of this run and returns what it removed
 func sweep() []string {

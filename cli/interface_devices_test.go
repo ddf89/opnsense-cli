@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Tests of /interface/lagg, bridge, gif, gre, loopback and vxlan: their field mapping and apply
+// Tests of /interface/lagg, bridge, gif, gre, loopback, tap and vxlan: their field mapping and apply
 
 func interfaceDeviceFake(t *testing.T, controller string, rows ...map[string]any) *fakeOPN {
 	t.Helper()
@@ -210,4 +210,75 @@ func TestInterfaceVxlan(t *testing.T) {
 		wantNoCalls(t, refused)
 	}
 	wantFailure(t, f.run("/interface/vxlan", "set", "vxlan2", "remote-address=198.51.100.1", "group=239.1.1.1"), "not both")
+}
+
+func TestInterfaceTap(t *testing.T) {
+	t.Parallel()
+	const path = "/api/interfaces/tap_settings/"
+	var rows = []map[string]any{{"uuid": "tap-1", "deviceId": "1", "deviceName": "tap01", "description": "vm bridge"},
+		{"uuid": "tap-2", "deviceId": "2", "deviceName": "tap02", "description": "lab"}}
+	var f = interfaceDeviceFake(t, "tap_settings", rows...)
+	f.on("POST", path+"add_item", 200, answerAdded("tap-2"))
+	f.on("POST", path+"set_item/tap-2", 200, answerSaved)
+	f.on("POST", path+"del_item/tap-1", 200, answerDeleted)
+	f.on("POST", path+"reconfigure", 200, `{"status":"ok"}`)
+	var printed = f.run("/interface/tap", "print")
+	wantExit(t, printed, 0)
+	var want = []string{"#|DEVICE|DESCRIPTION", "0|tap01|vm bridge", "1|tap02|lab"}
+	if got := interfaceLines(printed.stdout); !reflect.DeepEqual(got, want) {
+		t.Errorf("print:\n got  %q\n want %q", got, want)
+	}
+	var shown = f.run("/interface/tap", "show", "tap02")
+	wantExit(t, shown, 0)
+	wantContains(t, "stdout", shown.stdout, "uuid:", "tap-2", "device:", "tap02", "description:", "lab")
+	var added = f.run("/interface/tap", "add", "description=new")
+	wantExit(t, added, 0)
+	if added.stdout != "tap-2\n" || !strings.Contains(added.stderr, "device tap02") {
+		t.Errorf("add:\n%s", added)
+	}
+	wantFailure(t, f.run("/interface/tap", "add"), "description")
+	wantExit(t, f.run("/interface/tap", "set", "lab", "description=x"), 0)
+	wantExit(t, f.run("/interface/tap", "remove", "tap01"), 0)
+	wantExit(t, f.run("/interface/tap", "apply"), 0)
+	var mutations = f.mutations()
+	if len(mutations) != 4 || mutations[3].Path != path+"reconfigure" {
+		t.Fatalf("mutations: %v", mutations)
+	}
+	wantJSON(t, mutations[0], map[string]any{"tap": map[string]any{"description": "new"}})
+	wantJSON(t, mutations[1], map[string]any{"tap": map[string]any{"description": "x"}})
+	if mutations[2].Path != path+"del_item/tap-1" {
+		t.Errorf("remove: %v", mutations[2])
+	}
+}
+
+// TestInterfaceTapAssigned: OPNsense would delete an assigned TAP device, remove refuses it before sending anything
+func TestInterfaceTapAssigned(t *testing.T) {
+	t.Parallel()
+	var f = newFakeOPN(t)
+	f.search("/api/interfaces/tap_settings/search_item", map[string]any{"uuid": "tap-1", "deviceId": "1", "deviceName": "tap01", "description": "vm bridge"})
+	f.search(interfaceAssignmentPath, map[string]any{"uuid": "opt3", "identifier": "opt3", "descr": "vms", "if": "tap01"})
+	wantFailure(t, f.run("/interface/tap", "remove", "vm bridge"), "cannot remove TAP tap01", "assigned as interface opt3")
+	wantNoMutations(t, f)
+	// show tells where it is assigned
+	var shown = f.run("/interface/tap", "show", "0")
+	wantExit(t, shown, 0)
+	wantContains(t, "stdout", shown.stdout, "assigned:", "opt3")
+}
+
+// TestInterfaceTapUnsupported: OPNsense before 26.7.9 has no tap_settings (404)
+func TestInterfaceTapUnsupported(t *testing.T) {
+	t.Parallel()
+	var f = newFakeOPN(t)
+	for _, method := range []string{"search_item", "get_item", "add_item", "reconfigure"} {
+		var verb = "GET"
+		if method == "add_item" || method == "reconfigure" {
+			verb = "POST"
+		}
+		f.on(verb, "/api/interfaces/tap_settings/"+method, 404, `{"errorMessage":"Endpoint not found","errorTitle":"Error"}`)
+	}
+	for _, args := range [][]string{{"print"}, {"add", "description=x"}, {"set", "tap01", "description=x"}, {"remove", "tap01"}, {"apply"}} {
+		var r = f.run(append([]string{"/interface/tap"}, args...)...)
+		wantFailure(t, r, "TAP devices need OPNsense 26.7.9 or later")
+		wantNotContains(t, "stderr", r.stderr, "HTTP 404")
+	}
 }

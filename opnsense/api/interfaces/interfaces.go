@@ -1,5 +1,5 @@
 // Package interfaces wraps the OPNsense API behind the Interfaces menu (api/interfaces/*): the devices (VLAN,
-// LAGG, bridge, GIF, GRE, loopback, VXLAN), virtual IPs, static ARP/NDP neighbors, the global interface settings,
+// LAGG, bridge, GIF, GRE, loopback, TAP, VXLAN), virtual IPs, static ARP/NDP neighbors, the global interface settings,
 // the interface overview and the interface assignments
 package interfaces
 
@@ -38,6 +38,10 @@ type Kind struct {
 	devicePrefix string
 	// keep returns the fields every set_item has to repeat from the current record, see Update
 	keep func(item Item) map[string]string
+	// unguardedDelete is set when OPNsense deletes the item even while its device is assigned (Remove checks it)
+	unguardedDelete bool
+	// since is the OPNsense release that introduced the controller, "" for 26.7
+	since string
 }
 
 var (
@@ -65,12 +69,19 @@ var (
 	Gres = Kind{Name: "GRE", controller: "gre_settings", container: "gre", deviceField: "greif"}
 	// Loopbacks are Interfaces > Devices > Loopback (api/interfaces/loopback_settings). Fields: description
 	// (required); deviceId is numbered by OPNsense, the device is lo<deviceId>
-	Loopbacks = Kind{Name: "loopback", controller: "loopback_settings", container: "loopback", devicePrefix: "lo"}
+	Loopbacks = Kind{Name: "loopback", controller: "loopback_settings", container: "loopback", devicePrefix: "lo",
+		unguardedDelete: true}
+	// Taps are Interfaces > Devices > TAP (api/interfaces/tap_settings, OPNsense 26.7.9 and later). Fields:
+	// description (required); deviceId is numbered by OPNsense, deviceName (tap0<deviceId>, like tap01) is set by
+	// the model
+	Taps = Kind{Name: "TAP", controller: "tap_settings", container: "tap", deviceField: "deviceName",
+		unguardedDelete: true, since: "26.7.9"}
 	// Vxlans are Interfaces > Devices > VXLAN (api/interfaces/vxlan_settings). Fields: vxlanid (VNI 0-16777215),
 	// vxlanlocal (source address), vxlanlocalport, vxlanremote, vxlanremoteport, vxlangroup (multicast group,
 	// instead of vxlanremote), vxlandev (interface identifier, required with a group). deviceId is numbered by
 	// OPNsense, the device is vxlan<deviceId>
-	Vxlans = Kind{Name: "VXLAN", controller: "vxlan_settings", container: "vxlan", devicePrefix: "vxlan"}
+	Vxlans = Kind{Name: "VXLAN", controller: "vxlan_settings", container: "vxlan", devicePrefix: "vxlan",
+		unguardedDelete: true}
 	// Vips are Interfaces > Virtual IPs (api/interfaces/vip_settings). Fields: interface (identifier), mode
 	// (ipalias, carp, proxyarp), network (address/bits, search rows hold it as subnet and subnet_bits), gateway,
 	// noexpand, nobind, password (CARP, returned in clear text by search_item), vhid, advbase, advskew, peer,
@@ -83,7 +94,7 @@ var (
 )
 
 // Kinds lists all item kinds
-var Kinds = []Kind{Vlans, Laggs, Bridges, Gifs, Gres, Loopbacks, Vxlans, Vips, Neighbors}
+var Kinds = []Kind{Vlans, Laggs, Bridges, Gifs, Gres, Loopbacks, Taps, Vxlans, Vips, Neighbors}
 
 // NeighborManual is the origin of configured neighbors
 const NeighborManual = "manual"
@@ -175,6 +186,39 @@ func (kind Kind) HasDevice() bool {
 	return kind.deviceField != "" || kind.devicePrefix != ""
 }
 
+// Since returns the OPNsense release that introduced the kind, "" for the kinds of 26.7
+func (kind Kind) Since() string {
+	return kind.since
+}
+
+// ErrUnsupported is matched (errors.Is) by the errors of a kind the OPNsense version does not have yet
+var ErrUnsupported = errors.New("not supported by this OPNsense version")
+
+// UnsupportedError is returned for a kind newer than the OPNsense version: its endpoints answer 404
+type UnsupportedError struct {
+	Kind  string
+	Since string
+	// Err is the answer of OPNsense (an *HttpError)
+	Err error
+}
+
+func (e *UnsupportedError) Error() string {
+	return fmt.Sprintf("%s devices need OPNsense %s or later", e.Kind, e.Since)
+}
+
+func (e *UnsupportedError) Unwrap() []error {
+	return []error{ErrUnsupported, e.Err}
+}
+
+// kindError explains a 404 of a kind newer than 26.7: the OPNsense version does not have its controller yet
+func kindError(kind Kind, err error) error {
+	var httpErr *coreapi.HttpError
+	if kind.since != "" && errors.As(err, &httpErr) && httpErr.StatusCode == 404 {
+		return &UnsupportedError{Kind: kind.Name, Since: kind.since, Err: err}
+	}
+	return err
+}
+
 func vlanKeep(item Item) map[string]string {
 	// set_item regenerates the device name from the posted parent and tag: without them a QinQ device would be
 	// renamed, and the "assigned" checks compare the posted tag
@@ -203,7 +247,8 @@ func (opn *InterfacesApi) Search(kind Kind, searchPhrase string) ([]Item, error)
 	if kind.controller == "" {
 		return nil, errors.New("unknown item kind")
 	}
-	return coreapi.Search[Item](opn.OPNsense, opn.endpoint(kind.controller, "search_item"), searchPhrase)
+	var items, err = coreapi.Search[Item](opn.OPNsense, opn.endpoint(kind.controller, "search_item"), searchPhrase)
+	return items, kindError(kind, err)
 }
 
 // List returns all items of a kind
@@ -237,7 +282,7 @@ func (opn *InterfacesApi) Create(kind Kind, fields map[string]string) (string, e
 	}
 	var uuid, err = opn.Mutate(opn.endpoint(kind.controller, "add_item"), map[string]any{kind.container: fields})
 	if err != nil {
-		return "", err
+		return "", kindError(kind, err)
 	}
 	if uuid == "" {
 		return "", fmt.Errorf("OPNsense saved the %s but returned no uuid", kind.Name)
@@ -272,12 +317,14 @@ func (opn *InterfacesApi) Update(kind Kind, uuid string, fields map[string]strin
 }
 
 // Remove deletes an item. Unknown uuids are a *NotFoundError, items in use (an assigned device, a VLAN with QinQ
-// children, an address used by NAT rules, ...) are refused by OPNsense with an *HttpError naming the use
+// children, an address used by NAT rules, ...) are refused by OPNsense with an *HttpError naming the use. OPNsense
+// deletes assigned loopbacks, TAPs and VXLANs without a check (the assignment then points to a missing device),
+// Remove refuses them with an *AssignedError before anything is sent
 func (opn *InterfacesApi) Remove(kind Kind, uuid string) error {
 	if uuid == "" || strings.Contains(uuid, ",") {
 		return fmt.Errorf("cannot remove a %s by uuid %q", kind.Name, uuid)
 	}
-	if kind.controller == Neighbors.controller {
+	if kind.controller == Neighbors.controller || kind.unguardedDelete {
 		var current, err = opn.Get(kind, uuid)
 		if err != nil {
 			return err
@@ -285,8 +332,12 @@ func (opn *InterfacesApi) Remove(kind Kind, uuid string) error {
 		if err := checkChangeable(kind, current); err != nil {
 			return err
 		}
+		if err := opn.checkUnassigned(kind, current); err != nil {
+			return err
+		}
 	}
 	var _, err = opn.Mutate(fmt.Sprintf("%s/%s", opn.endpoint(kind.controller, "del_item"), url.PathEscape(uuid)), nil)
+	err = kindError(kind, err)
 	if coreapi.IsNotFound(err) {
 		return &coreapi.NotFoundError{Name: kind.Name + " " + uuid, Err: err}
 	}
@@ -295,6 +346,36 @@ func (opn *InterfacesApi) Remove(kind Kind, uuid string) error {
 		return fmt.Errorf("cannot remove %s %s: %s", kind.Name, uuid, httpErr.Message)
 	}
 	return err
+}
+
+// AssignedError is returned by Remove for a device that is assigned as an interface
+type AssignedError struct {
+	Kind       string
+	Device     string
+	Identifier string
+}
+
+func (e *AssignedError) Error() string {
+	return fmt.Sprintf("cannot remove %s %s: it is assigned as interface %s, remove that assignment first",
+		e.Kind, e.Device, e.Identifier)
+}
+
+// checkUnassigned refuses devices of kinds OPNsense deletes even while they are assigned
+func (opn *InterfacesApi) checkUnassigned(kind Kind, item Item) error {
+	var device = kind.Device(item)
+	if !kind.unguardedDelete || device == "" {
+		return nil
+	}
+	var assignments, err = opn.Assignments()
+	if err != nil {
+		return fmt.Errorf("cannot check whether %s is assigned: %w", device, err)
+	}
+	for _, assignment := range assignments {
+		if assignment.Device == device {
+			return &AssignedError{Kind: kind.Name, Device: device, Identifier: assignment.Identifier}
+		}
+	}
+	return nil
 }
 
 func checkChangeable(kind Kind, item Item) error {
@@ -308,14 +389,14 @@ func checkChangeable(kind Kind, item Item) error {
 //   - VLANs: creates new VLAN devices, removes deleted ones, updates priority and protocol of existing ones
 //   - LAGGs, GIFs, GREs: (re)configures the changed devices, removes deleted ones
 //   - bridges: removes deleted bridges and reconfigures every bridge and its members
-//   - loopbacks, VXLANs: creates the configured devices and removes the others of the type
+//   - loopbacks, TAPs, VXLANs: creates the configured devices and removes the others of the type
 //   - virtual IPs: removes deleted addresses, adds new or changed ones (CARP included)
 //   - neighbors: sets the static ARP/NDP entries and removes deleted ones
 func (opn *InterfacesApi) Reconfigure(kind Kind) error {
 	if kind.controller == "" {
 		return errors.New("unknown item kind")
 	}
-	return opn.reconfigure(kind.controller, kind.Name)
+	return kindError(kind, opn.reconfigure(kind.controller, kind.Name))
 }
 
 // reconfigure POSTs controller/reconfigure, a GET is a silent no-op. The status is "ok" or the configd output
@@ -357,7 +438,7 @@ func (opn *InterfacesApi) Form(kind Kind) (Form, error) {
 	}
 	var container map[string]map[string]json.RawMessage
 	if err := opn.DoJSON("GET", opn.endpoint(kind.controller, "get_item"), nil, &container); err != nil {
-		return Form{}, err
+		return Form{}, kindError(kind, err)
 	}
 	var record, found = container[kind.container]
 	if !found {
