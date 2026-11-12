@@ -9,15 +9,15 @@ import (
 	"time"
 )
 
-// /interface/host-discovery: Interfaces > Neighbors > Automatic Discovery (api/hostdiscovery). The hostwatch daemon
-// passively records the IP / MAC pairs it sees in ARP and NDP traffic on the selected interfaces; print lists them
+// /interface/host-discovery: Interfaces > Hostwatch > Hosts and Settings (api/hostdiscovery; Interfaces > Neighbors >
+// Automatic Discovery before OPNsense 26.7.9). The hostwatch daemon passively records the IP / MAC pairs it sees in ARP and NDP traffic on the selected interfaces; print lists them
 // (or the ARP and NDP tables while hostwatch does not run). /interface/host-discovery/settings holds its settings
 
 const hostDiscoveryApplyHint = `Changes are only saved, run "/interface/host-discovery reconfigure" to apply them.`
 
 func init() {
 	var menu = Root.Menu("interface/host-discovery")
-	menu.Help = "discovered hosts and the hostwatch service (Interfaces > Neighbors > Automatic Discovery)"
+	menu.Help = "discovered hosts and the hostwatch service (Interfaces > Hostwatch)"
 	menu.Add(
 		&Command{Name: "print", Help: "list the discovered hosts (IP and MAC addresses per interface)",
 			Long: `While hostwatch does not run, OPNsense lists the ARP and NDP tables instead (SOURCE arp-ndp, without
@@ -37,7 +37,7 @@ first and last seen).`,
 	)
 
 	var settings = Root.Menu("interface/host-discovery/settings")
-	settings.Help = "settings of the host discovery"
+	settings.Help = "settings of the host discovery (Interfaces > Hostwatch > Settings)"
 	settings.Add(
 		&Command{Name: "print", Help: "show the host discovery settings",
 			Long: `options lists the interfaces that can be watched instead.`,

@@ -1,6 +1,6 @@
-// Package hostdiscovery wraps Interfaces > Neighbors > Automatic Discovery (api/hostdiscovery): the settings of the
-// hostwatch daemon, which passively watches ARP / NDP traffic on the selected interfaces, the service and the
-// discovered hosts
+// Package hostdiscovery wraps Interfaces > Hostwatch (api/hostdiscovery; Interfaces > Neighbors > Automatic
+// Discovery before OPNsense 26.7.9): the settings of the hostwatch daemon, which passively watches ARP / NDP traffic
+// on the selected interfaces, the service and the discovered hosts
 package hostdiscovery
 
 import (
