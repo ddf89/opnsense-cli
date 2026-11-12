@@ -78,9 +78,9 @@ func TestKeaSubnetPrint(t *testing.T) {
 	var r = f.run("/kea/dhcp4/subnet", "print")
 	wantExit(t, r, 0)
 	var want = []string{
-		"#|SUBNET|POOLS|ROUTERS|DNS-SERVERS|DESCRIPTION",
-		"0|198.51.100.0/24|198.51.100.10-198.51.100.20,198.51.100.32/28|198.51.100.1|198.51.100.2,198.51.100.3|office",
-		"1|203.0.113.0/24|-|198.51.100.1|198.51.100.2,198.51.100.3|lab",
+		"#|SUBNET|INTERFACE|POOLS|ROUTERS|DNS-SERVERS|DESCRIPTION",
+		"0|198.51.100.0/24|-|198.51.100.10-198.51.100.20,198.51.100.32/28|198.51.100.1|198.51.100.2,198.51.100.3|office",
+		"1|203.0.113.0/24|-|-|198.51.100.1|198.51.100.2,198.51.100.3|lab",
 	}
 	if got := keaTestLines(r.stdout); !reflect.DeepEqual(got, want) {
 		t.Errorf("print:\n got  %q\n want %q", got, want)
@@ -225,6 +225,68 @@ func TestKeaSubnetSetRemove(t *testing.T) {
 	wantFailure(t, removed.run("/kea/dhcp4/subnet", "remove", "office"), "in use by", keaReservationUuid)
 	removed.on("POST", "/api/kea/dhcpv4/del_subnet/"+keaSubnet2Uuid, 200, answerDeleted)
 	wantExit(t, removed.run("/kea/dhcp4/subnet", "remove", "1"), 0)
+}
+
+// TestKeaSubnetSharedNetwork covers the shared network fields of 26.7.9: interface, match-code, match-encoding and
+// match-data are shown, sent only when given and checked like OPNsense does before anything is sent
+func TestKeaSubnetSharedNetwork(t *testing.T) {
+	t.Parallel()
+	var shared = map[string]any{"interface": "lan", "%interface": "LAN", "match_code": "77", "%match_code": "user class [77]",
+		"match_encoding": "string", "%match_encoding": "String", "match_data": "voip"}
+	var f = newFakeOPN(t)
+	f.search(keaSubnet4Path, keaSubnet4Row(shared))
+	f.search(keaOption4Path, keaOption4Row())
+	f.on("POST", "/api/kea/dhcpv4/add_subnet", 200, answerAdded("new-subnet"))
+	f.on("POST", "/api/kea/dhcpv4/set_subnet/"+keaSubnetUuid, 200, answerSaved)
+
+	var print = f.run("/kea/dhcp4/subnet", "print")
+	wantExit(t, print, 0)
+	if got := keaTestLines(print.stdout); len(got) != 2 || !strings.HasPrefix(got[1], "0|198.51.100.0/24|lan|") {
+		t.Errorf("print %q", got)
+	}
+	var show = f.run("/kea/dhcp4/subnet", "show", "office")
+	wantExit(t, show, 0)
+	for _, want := range []string{"interface:|lan", "match-code:|77", "match-encoding:|string", "match-data:|voip"} {
+		if !slicesContain(keaTestLines(show.stdout), want) {
+			t.Errorf("show: want %q in %q", want, show.stdout)
+		}
+	}
+
+	wantExit(t, f.run("/kea/dhcp4/subnet", "add", "subnet=192.0.2.0/24", "interface=lan", "match-code=77", "match-encoding=STRING", "match-data=voip"), 0)
+	wantJSON(t, f.mutations()[0], map[string]any{"subnet4": map[string]any{
+		"subnet": "192.0.2.0/24", "interface": "lan", "match_code": "77", "match_encoding": "string", "match_data": "voip"}})
+	// clearing them again (OPNsense checks the stored fields)
+	wantExit(t, f.run("/kea/dhcp4/subnet", "set", "office", "interface=", "match-code=", "match-encoding=", "match-data="), 0)
+	wantJSON(t, f.mutations()[1], map[string]any{"subnet4": map[string]any{"interface": "", "match_code": "", "match_encoding": "", "match_data": ""}})
+
+	t.Run("refused before any call", func(t *testing.T) {
+		t.Parallel()
+		for _, test := range []struct {
+			args []string
+			want string
+		}{
+			{[]string{"add", "subnet=192.0.2.0/24", "interface=lan"}, "needs match-code"},
+			{[]string{"add", "subnet=192.0.2.0/24", "match-code=77", "match-encoding=string"}, "both"},
+			{[]string{"add", "subnet=192.0.2.0/24", "match-data=voip", "match-encoding=string"}, "both"},
+			{[]string{"add", "subnet=192.0.2.0/24", "match-code=77", "match-data=voip"}, "match-encoding"},
+			{[]string{"add", "subnet=192.0.2.0/24", "match-code=300", "match-encoding=string", "match-data=voip"}, "match-code"},
+			{[]string{"add", "subnet=192.0.2.0/24", "match-code=77", "match-encoding=utf8", "match-data=voip"}, "match-encoding"},
+			{[]string{"set", "office", "match-code=", "match-data=voip"}, "both"},
+			{[]string{"set", "office", "interface=lan", "match-code="}, "needs a match-code"},
+		} {
+			var f = keaFake(t)
+			wantFailure(t, f.run(append([]string{"/kea/dhcp4/subnet"}, test.args...)...), test.want)
+			wantNoCalls(t, f)
+		}
+	})
+
+	t.Run("validation errors name the arguments", func(t *testing.T) {
+		t.Parallel()
+		var f = keaFake(t)
+		f.on("POST", "/api/kea/dhcpv4/set_subnet/"+keaSubnet2Uuid, 200,
+			`{"result":"failed","validations":{"subnet4.interface":"Interface is not selected in the general settings."}}`)
+		wantFailure(t, f.run("/kea/dhcp4/subnet", "set", "lab", "interface=opt1"), "interface: Interface is not selected")
+	})
 }
 
 func TestKeaReservation(t *testing.T) {

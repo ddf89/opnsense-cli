@@ -62,6 +62,22 @@ func TestCollectionList(t *testing.T) {
 	}
 }
 
+// TestKeaSubnet4SharedNetwork decodes the shared network fields of a 26.7.9 subnet
+func TestKeaSubnet4SharedNetwork(t *testing.T) {
+	var api, _ = newTestApi(t, map[string]string{
+		"GET /api/kea/dhcpv4/search_subnet": `{"rows":[{"uuid":"` + testSubnetUuid + `","subnet":"198.51.100.0\/24","interface":"lan",` +
+			`"%interface":"LAN","match_code":"77","%match_code":"user class [77]","match_encoding":"string","%match_encoding":"String",` +
+			`"match_data":"voip","description":"voip"}],"rowCount":1,"total":1,"current":1}`,
+	})
+	var subnets, err = api.KeaSubnets4().List("")
+	if err != nil || len(subnets) != 1 {
+		t.Fatalf("%+v / %v", subnets, err)
+	}
+	if subnet := subnets[0]; subnet.Interface != "lan" || subnet.MatchCode != "77" || subnet.MatchEncoding != "string" || subnet.MatchData != "voip" {
+		t.Errorf("got %+v", subnet)
+	}
+}
+
 func TestCollectionCreate(t *testing.T) {
 	var api, server = newTestApi(t, map[string]string{
 		"POST /api/kea/dhcpv4/add_subnet":      `{"result":"saved","uuid":"` + testSubnetUuid + `"}`,
@@ -294,7 +310,7 @@ func TestRelayAndRadvdRecords(t *testing.T) {
 			`"destination":"d1","%destination":"servers","agent_info":"1","carp_depend_on":"","status":"grey"}]}`,
 		"GET /api/dhcrelay/settings/search_dest": `{"rows":[{"uuid":"d1","name":"servers","server":"198.51.100.67,198.51.100.68"}]}`,
 		"GET /api/radvd/settings/search_entry": `{"rows":[{"uuid":"e1","enabled":"0","interface":"lan","mode":"managed","%mode":"Managed",` +
-			`"RDNSS":"2001:db8::53","MinRtrAdvInterval":"200","AdvDefaultPreference":"medium"}]}`,
+			`"RDNSS":"2001:db8::53","MinRtrAdvInterval":"200","AdvDefaultPreference":"medium","nat64prefix":"64:ff9b::\/96","nat64prefixLifetime":"600"}]}`,
 	})
 	if relays, err := api.Relays().List(""); err != nil || len(relays) != 1 || relays[0].DestinationName != "servers" || relays[0].Status != "grey" {
 		t.Errorf("relays %+v / %v", relays, err)
@@ -302,7 +318,8 @@ func TestRelayAndRadvdRecords(t *testing.T) {
 	if destinations, err := api.RelayDestinations().List(""); err != nil || destinations[0].Server != "198.51.100.67,198.51.100.68" {
 		t.Errorf("destinations %+v / %v", destinations, err)
 	}
-	if entries, err := api.RadvdEntries().List(""); err != nil || entries[0].Mode != "managed" || entries[0].RDNSS != "2001:db8::53" {
+	if entries, err := api.RadvdEntries().List(""); err != nil || entries[0].Mode != "managed" || entries[0].RDNSS != "2001:db8::53" ||
+		entries[0].Nat64prefix != "64:ff9b::/96" || entries[0].Nat64prefixLifetime != "600" {
 		t.Errorf("entries %+v / %v", entries, err)
 	}
 	if api.RadvdEntries().Container() != "entries" || api.RelayDestinations().Container() != "destination" || api.KeaPdPools().What() != "kea dhcpv6 pd pool" {

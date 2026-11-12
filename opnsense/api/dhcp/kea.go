@@ -57,6 +57,13 @@ type KeaSubnet4 struct {
 	DdnsOverrideClientUpdate   string `json:"ddns_override_client_update"`
 	DdnsUpdateOnRenew          string `json:"ddns_update_on_renew"`
 	DdnsConflictResolutionMode string `json:"ddns_conflict_resolution_mode"`
+	// Interface binds the subnet to an interface (26.7.9+): the subnets of one interface form a shared network, and
+	// only clients that sent option MatchCode with MatchData (in MatchEncoding) may use the subnet. Empty before
+	// 26.7.9
+	Interface     string `json:"interface"`
+	MatchCode     string `json:"match_code"`
+	MatchEncoding string `json:"match_encoding"`
+	MatchData     string `json:"match_data"`
 }
 
 // KeaSubnet6 is a DHCPv6 subnet (kea/dhcpv6 search_subnet). With DynamicPrefix the subnet is empty and follows the

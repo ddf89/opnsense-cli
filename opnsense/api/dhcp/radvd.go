@@ -36,7 +36,9 @@ type RadvdEntry struct {
 	AdvValidLifetime     string `json:"AdvValidLifetime"`
 	AdvDefaultPreference string `json:"AdvDefaultPreference"` // low, medium, high
 	Nat64prefix          string `json:"nat64prefix"`
-	AdvCurHopLimit       string `json:"AdvCurHopLimit"`
+	// Nat64prefixLifetime is the lifetime of the NAT64 prefix in seconds (26.7.9+, empty for the radvd default)
+	Nat64prefixLifetime string `json:"nat64prefixLifetime"`
+	AdvCurHopLimit      string `json:"AdvCurHopLimit"`
 }
 
 // RadvdEntries are the router advertisement entries

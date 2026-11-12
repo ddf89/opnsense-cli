@@ -297,8 +297,15 @@ func requireKeaDisabled(t *testing.T, dhcpApi *dhcp.DhcpApi) {
 // disabled, and restores the interfaces when the test ends
 func keaDhcp6WithInterface(t *testing.T, dhcpApi *dhcp.DhcpApi, iface string) {
 	t.Helper()
+	keaWithInterface(t, dhcpApi, dhcp.KeaDhcp6Settings, iface)
+}
+
+// keaWithInterface selects iface in the interfaces of the Kea settings spec while Kea stays disabled, and restores
+// the interfaces when the test ends
+func keaWithInterface(t *testing.T, dhcpApi *dhcp.DhcpApi, spec dhcp.SettingsSpec, iface string) {
+	t.Helper()
 	requireKeaDisabled(t, dhcpApi)
-	var form, err = dhcpApi.SettingsGet(dhcp.KeaDhcp6Settings)
+	var form, err = dhcpApi.SettingsGet(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,12 +314,12 @@ func keaDhcp6WithInterface(t *testing.T, dhcpApi *dhcp.DhcpApi, iface string) {
 	if !strings.Contains(","+before+",", ","+iface+",") {
 		selected = strings.Trim(before+","+iface, ",")
 	}
-	if err := dhcpApi.SettingsSet(dhcp.KeaDhcp6Settings, dhcp.Fields{"general.interfaces": selected}); err != nil {
+	if err := dhcpApi.SettingsSet(spec, dhcp.Fields{"general.interfaces": selected}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := dhcpApi.SettingsSet(dhcp.KeaDhcp6Settings, dhcp.Fields{"general.interfaces": before}); err != nil {
-			t.Errorf("restoring the DHCPv6 interfaces %q: %v", before, err)
+		if err := dhcpApi.SettingsSet(spec, dhcp.Fields{"general.interfaces": before}); err != nil {
+			t.Errorf("restoring the interfaces %q of the %s: %v", before, spec.What(), err)
 		}
 	})
 }
