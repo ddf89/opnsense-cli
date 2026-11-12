@@ -31,8 +31,9 @@ json prints the raw answers of all endpoints as one JSON object keyed by part. P
 		&Command{
 			Name: "monitor",
 			Help: "show the CPU usage every second until Ctrl-C",
-			Long: `Shows the CPU usage in percent, measured by OPNsense every second, one line per second until Ctrl-C.
-once prints a single measurement together with the CPU model. json prints the raw OPNsense events, one
+			Long: `Shows the CPU model and usage in percent, measured by OPNsense every second until Ctrl-C: on a terminal
+the view is redrawn in place, otherwise a "--- time" line separates the measurements. once prints a single
+measurement. json prints the raw OPNsense events, one
 JSON object per line. A dropped stream is reconnected.`,
 			Args: []Arg{
 				{Name: "once", Type: Bool, Help: "print one measurement with the CPU model and stop"},
@@ -218,8 +219,6 @@ func systemResourceTemperatures(sensors []diagnostics.SystemResourceTemperature)
 
 var errSystemResourceDone = errors.New("done")
 
-const systemResourceLineFormat = "%-8s  %5s  %5s  %5s  %5s  %5s  %5s\n"
-
 func systemResourceMonitor(c *Context, args *Args) error {
 	var api, err = ifaceDiagnostics(c)
 	if err != nil {
@@ -229,20 +228,28 @@ func systemResourceMonitor(c *Context, args *Args) error {
 	var asJSON = args.Bool("json")
 
 	var model string
-	if once && !asJSON {
+	if !asJSON {
 		if model, err = api.CpuType(); err != nil {
-			return err
+			if once {
+				return err
+			}
+			model = "-" // the usage still streams
 		}
 	}
 
-	var headerPrinted = false
+	var refresh = systemActivityNewRefresher(c, !once && !asJSON)
+	var terminal = systemActivityIsTerminal(c)
 	err = api.CpuWatch(c.Context, ifaceReconnect(c, "CPU usage"), func(usage diagnostics.CpuUsage) error {
 		switch {
 		case asJSON:
 			if err := c.JSON(usage.Raw); err != nil {
 				return err
 			}
-		case once:
+		default:
+			refresh()
+			if terminal && !once {
+				c.Printf("%s (Ctrl-C stops)\n\n", time.Now().Format("15:04:05"))
+			}
 			c.Fields([][2]string{
 				{"model", model},
 				{"total", systemResourceCPUPercent(usage.Total)},
@@ -252,14 +259,6 @@ func systemResourceMonitor(c *Context, args *Args) error {
 				{"interrupt", systemResourceCPUPercent(usage.Intr)},
 				{"idle", systemResourceCPUPercent(usage.Idle)},
 			})
-		default:
-			if !headerPrinted {
-				headerPrinted = true
-				c.Printf(systemResourceLineFormat, "TIME", "TOTAL", "USER", "NICE", "SYS", "INTR", "IDLE")
-			}
-			c.Printf(systemResourceLineFormat, time.Now().Format("15:04:05"), systemResourceCPUPercent(usage.Total),
-				systemResourceCPUPercent(usage.User), systemResourceCPUPercent(usage.Nice), systemResourceCPUPercent(usage.Sys),
-				systemResourceCPUPercent(usage.Intr), systemResourceCPUPercent(usage.Idle))
 		}
 		if once {
 			return errSystemResourceDone

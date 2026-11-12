@@ -67,6 +67,10 @@ Return errors, the framework prints `error: …` (exit 1 for one-shot and script
 `follow`, `monitor-traffic` and other streaming commands run until `c.Done()` (Ctrl-C) and then return nil. They
 must not exit the shell. Use `c.Interactive()` only for cosmetics.
 
+A view that refreshes (a monitor, `print follow` of a status) calls the function of `systemActivityNewRefresher`
+before every refresh: on a terminal it clears the screen so the view is redrawn in place, otherwise it writes a
+`--- time` line. Streams of new events (log lines, alerts) append instead. `json` output always appends (ndjson).
+
 ## Dangerous commands
 
 Set `Command.Confirm` to a sentence describing the consequence ("This reboots the firewall."). The framework

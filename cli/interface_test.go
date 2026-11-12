@@ -145,15 +145,17 @@ func TestInterfaceMonitorTrafficFollow(t *testing.T) {
 	}
 	var r = p.interrupt()
 	wantExit(t, r, 0)
-	var lines = ifaceTestLines(r.stdout)
-	if len(lines) != 5 || !strings.HasPrefix(lines[0], "TIME") {
-		t.Fatalf("want a header and 4 lines:\n%s", r.stdout)
+	// not a terminal: every measurement is a table after a "--- time" line (a terminal redraws it in place)
+	var blocks = strings.Split(r.stdout, "--- ")
+	if len(blocks) != 3 || blocks[0] != "" {
+		t.Fatalf("want two measurements, each after a --- line:\n%s", r.stdout)
 	}
-	wantContains(t, "output", lines[1], "lan", "LAN", "1.0 kbit/s")
-	wantContains(t, "output", lines[3], "lan", "1.0 Mbit/s", "1250")
-	// fixed columns: all lines equally aligned
-	if strings.Index(lines[1], "LAN") != strings.Index(lines[0], "NAME") {
-		t.Errorf("columns not aligned:\n%s", r.stdout)
+	for i, want := range [][]string{{"lan", "LAN", "1.0 kbit/s"}, {"lan", "1.0 Mbit/s", "1250"}} {
+		var lines = ifaceTestLines(blocks[i+1])
+		if len(lines) != 4 || !strings.HasPrefix(lines[1], "INTERFACE") {
+			t.Fatalf("measurement %d: want the time, the header and two interfaces:\n%s", i+1, blocks[i+1])
+		}
+		wantContains(t, "output", lines[2], want...)
 	}
 }
 

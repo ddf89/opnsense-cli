@@ -375,7 +375,10 @@ GUI for these.
 - streaming commands (`/log print follow`, `/firewall/log print follow|stream`, `/interface monitor-traffic`,
   `/system/resource monitor`, `/system/activity print follow`, `/tool torch`, `/system/gateway monitor`,
   `/firewall/state print follow`, `/vpn/openvpn/session print follow`, ...) run until Ctrl-C, reconnect dropped
-  streams and exit 0 when stopped. `once` (monitors) prints a single measurement, `json` the raw events
+  streams and exit 0 when stopped. `once` (monitors) prints a single measurement, `json` the raw events.
+  Views that refresh (monitors, `print follow` of states, sessions, activity, ...) redraw in place on a terminal
+  and write a `--- time` line before every refresh when piped; log and alert streams (`/log`, `/firewall/log`,
+  `/ids/alert print follow`) keep appending new lines
 
     opn /firewall log print follow json action=block | jq .src
     opn /log print configd lines=0 follow search="dnsmasq status"
