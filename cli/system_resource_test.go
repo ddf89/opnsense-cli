@@ -159,14 +159,15 @@ func TestSystemResourceMonitorFollow(t *testing.T) {
 	p.waitFor("100%")
 	var r = p.interrupt()
 	wantExit(t, r, 0)
-	var lines = ifaceTestLines(r.stdout)
-	if len(lines) != 3 || !strings.HasPrefix(lines[0], "TIME") {
-		t.Fatalf("want a header and 2 lines:\n%s", r.stdout)
+	// not a terminal: every measurement is a block after a "--- time" line (a terminal redraws it in place)
+	var blocks = strings.Split(r.stdout, "--- ")
+	if len(blocks) != 3 || blocks[0] != "" {
+		t.Fatalf("want two measurements, each after a --- line:\n%s", r.stdout)
 	}
-	wantContains(t, "output", lines[1], "83%", "64%", "17%")
-	wantContains(t, "output", lines[2], "0%", "100%")
-	if n := ifaceTestCount(f, systemResourceTestType); n != 0 {
-		t.Errorf("monitor must not query the CPU type, got %d", n)
+	wantContains(t, "first", blocks[1], "model:", "total:", "83%", "user:", "64%", "17%")
+	wantContains(t, "second", blocks[2], "total:", "0%", "idle:", "100%")
+	if n := ifaceTestCount(f, systemResourceTestType); n != 1 {
+		t.Errorf("monitor queries the CPU type once, got %d", n)
 	}
 }
 

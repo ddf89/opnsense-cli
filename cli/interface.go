@@ -34,8 +34,8 @@ interface name added as "interface").`,
 			Name: "monitor-traffic",
 			Help: "show the live throughput per interface until Ctrl-C",
 			Long: `Shows the throughput of the interfaces in bits/s and packets/s, measured by OPNsense over interval
-(whole seconds). One line per interface and interval is printed until Ctrl-C, once prints a single
-measurement as a table. json prints the raw OPNsense events instead (counter deltas of the interval plus
+(whole seconds), refreshed every interval until Ctrl-C: on a terminal the table is redrawn in place,
+otherwise a "--- time" line separates the measurements. once prints a single measurement. json prints the raw OPNsense events instead (counter deltas of the interval plus
 a unix timestamp), one JSON object per line. A dropped stream is reconnected.
 
   monitor-traffic interface=lan,wan interval=5
@@ -192,7 +192,8 @@ func ifaceMonitorTraffic(c *Context, args *Args) error {
 	var seconds = int(args.Duration("interval") / time.Second)
 
 	var selected map[string]bool // nil: all
-	var line *ifaceTrafficLine
+	var refresh = systemActivityNewRefresher(c, !once && !asJSON)
+	var terminal = systemActivityIsTerminal(c)
 	err = api.TrafficWatch(c.Context, seconds, ifaceReconnect(c, "traffic"), func(sample diagnostics.TrafficSample, rates []diagnostics.TrafficRate) error {
 		if selected == nil && len(names) > 0 {
 			var selectErr error
@@ -209,21 +210,16 @@ func ifaceMonitorTraffic(c *Context, args *Args) error {
 			if err := c.JSON(sample.Raw); err != nil {
 				return err
 			}
-		case once:
+		default:
+			refresh()
+			if terminal && !once {
+				c.Printf("%s, measured over %ds (Ctrl-C stops)\n\n", sample.Timestamp().Format("15:04:05"), seconds)
+			}
 			var rows = make([][]string, 0, len(rates))
 			for _, rate := range rates {
 				rows = append(rows, ifaceTrafficCells(rate))
 			}
 			c.Table(ifaceTrafficHeaders, rows)
-		default:
-			if line == nil {
-				line = ifaceNewTrafficLine(rates)
-				c.Println(line.header())
-			}
-			var timestamp = sample.Timestamp().Format("15:04:05")
-			for _, rate := range rates {
-				c.Println(line.format(timestamp, rate))
-			}
 		}
 		if once {
 			return errIfaceDone
@@ -291,33 +287,6 @@ func ifaceTrafficCells(rate diagnostics.TrafficRate) []string {
 		rate.Interface, rate.Name, ifaceBits(rate.InBitsPerSecond), ifaceBits(rate.OutBitsPerSecond),
 		ifacePackets(rate.InPacketsPerSecond), ifacePackets(rate.OutPacketsPerSecond), strconv.FormatInt(rate.Errors, 10),
 	}
-}
-
-// ifaceTrafficLine formats the streamed lines with fixed column widths (the interfaces of the first sample set the widths)
-type ifaceTrafficLine struct {
-	interfaceWidth, nameWidth int
-}
-
-func ifaceNewTrafficLine(rates []diagnostics.TrafficRate) *ifaceTrafficLine {
-	var line = &ifaceTrafficLine{interfaceWidth: len("INTERFACE"), nameWidth: len("NAME")}
-	for _, rate := range rates {
-		line.interfaceWidth = max(line.interfaceWidth, len(rate.Interface))
-		line.nameWidth = max(line.nameWidth, len(rate.Name))
-	}
-	return line
-}
-
-func (l *ifaceTrafficLine) row(cells []string) string {
-	return strings.TrimRight(fmt.Sprintf("%-8s  %-*s  %-*s  %13s  %13s  %9s  %9s  %6s",
-		cells[0], l.interfaceWidth, cells[1], l.nameWidth, cells[2], cells[3], cells[4], cells[5], cells[6], cells[7]), " ")
-}
-
-func (l *ifaceTrafficLine) header() string {
-	return l.row(append([]string{"TIME"}, ifaceTrafficHeaders...))
-}
-
-func (l *ifaceTrafficLine) format(timestamp string, rate diagnostics.TrafficRate) string {
-	return l.row(append([]string{timestamp}, ifaceTrafficCells(rate)...))
 }
 
 // --- units
