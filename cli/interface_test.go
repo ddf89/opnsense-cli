@@ -329,5 +329,23 @@ func ifaceStreamSuite(t *testing.T, cases []ifaceStreamCase) {
 				t.Errorf("want %q once per connection (the baseline of the reconnect skipped), got %d:\n%s", tc.want, n, r.stdout)
 			}
 		})
+
+		// OPNsense 26.7.9+ has no free stream slot (other live views hold them): retried, even on the first connection
+		t.Run(tc.name+"/no free stream slot", func(t *testing.T) {
+			t.Parallel()
+			var f = tc.fake(t, ifaceStreamBusy, sseConn{Keepalive: true, Events: tc.events})
+			var p = f.start(tc.args...)
+			p.waitFor(tc.want)
+			var r = p.interrupt()
+			wantExit(t, r, 0)
+			wantContains(t, "stderr", r.stderr, "no free stream slot", `"Unable to open stream, max slots (15) used"`, "reconnecting in 1s")
+			wantNotContains(t, "stderr", r.stderr, "unsupported endpoint")
+			if n := f.streamConnections(tc.path); n != 2 {
+				t.Errorf("want 2 stream connections, got %d", n)
+			}
+		})
 	}
 }
+
+// ifaceStreamBusy is the answer of OPNsense 26.7.9+ when all its stream slots are in use
+var ifaceStreamBusy = sseConn{Status: 200, ContentType: "text/html; charset=UTF-8", Body: "Unable to open stream, max slots (15) used"}

@@ -175,7 +175,8 @@ func (e *trafficCallbackError) Unwrap() error {
 // connect reports whether the connection passed anything on to the caller. Permanent are: errors of the event
 // handling (trafficCallbackError, returned unwrapped), HTTP 4xx answers, and a first connection that fails without
 // delivering anything (e.g. not an event stream, unreachable). Everything else (stream closed, network errors,
-// 5xx later on) is retried with exponential backoff, a connection that delivered something resets the backoff
+// 5xx later on, no free stream slot even on the first connection) is retried with exponential backoff, a
+// connection that delivered something resets the backoff
 func trafficFollow(ctx context.Context, options TrafficFollowOptions, connect func() (bool, error)) error {
 	var minDelay, maxDelay = options.MinDelay, options.MaxDelay
 	if minDelay <= 0 {
@@ -204,7 +205,7 @@ func trafficFollow(ctx context.Context, options TrafficFollowOptions, connect fu
 		if errors.As(err, &httpErr) && httpErr.StatusCode < 500 {
 			return err
 		}
-		if first && !delivered && err != nil && err != io.EOF {
+		if first && !delivered && err != nil && err != io.EOF && !coreapi.IsStreamBusy(err) {
 			return err
 		}
 		first = false
@@ -238,7 +239,8 @@ func trafficSleep(ctx context.Context, d time.Duration) bool {
 // TrafficWatch streams traffic like TrafficStream until ctx is cancelled (nil) or handle returns an error, skipping
 // the baseline event of every connection and handing every following sample to handle together with its rates.
 // Dropped streams are reconnected with backoff (see TrafficFollowOptions), each reconnect starts with a new baseline.
-// 4xx answers, answers that are no event stream, invalid events and a first connection that fails are returned
+// 4xx answers, answers that are no event stream, invalid events and a first connection that fails are returned;
+// OPNsense having no free stream slot (coreapi.IsStreamBusy) is retried
 func (opn *DiagnosticsApi) TrafficWatch(ctx context.Context, intervalSeconds int, options TrafficFollowOptions, handle func(TrafficSample, []TrafficRate) error) error {
 	if intervalSeconds < 1 {
 		return fmt.Errorf("traffic interval must be at least 1 second, got %d", intervalSeconds)

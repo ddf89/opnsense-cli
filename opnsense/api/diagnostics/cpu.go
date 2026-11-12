@@ -39,7 +39,8 @@ func (opn *DiagnosticsApi) CpuStream(ctx context.Context, handle func(CpuUsage) 
 
 // CpuWatch streams the CPU usage until ctx is cancelled (nil) or handle returns an error, skipping the first event
 // of every connection (the average since boot). Dropped streams are reconnected with backoff like TrafficWatch,
-// 4xx answers, answers that are no event stream, invalid events and a first connection that fails are returned
+// 4xx answers, answers that are no event stream, invalid events and a first connection that fails are returned;
+// OPNsense having no free stream slot (coreapi.IsStreamBusy) is retried
 func (opn *DiagnosticsApi) CpuWatch(ctx context.Context, options TrafficFollowOptions, handle func(CpuUsage) error) error {
 	var endpoint = opn.endpoint("cpu_usage", "stream")
 	return trafficFollow(ctx, options, func() (bool, error) {

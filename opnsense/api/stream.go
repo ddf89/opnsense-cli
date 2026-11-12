@@ -43,7 +43,8 @@ func (opn *OPNsense) Stream(ctx context.Context, endpoint string, handle func(St
 		return &HttpError{StatusCode: response.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 	if contentType := response.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "text/event-stream") {
-		return fmt.Errorf("%s did not answer with an event stream but %q (unsupported endpoint or OPNsense version?)", endpoint, contentType)
+		var body, _ = io.ReadAll(io.LimitReader(response.Body, 4096))
+		return &StreamRefusedError{Endpoint: endpoint, ContentType: contentType, Answer: streamShorten(body)}
 	}
 
 	var err = ParseEventStream(response.Body, func(event StreamEvent) error {
@@ -56,6 +57,52 @@ func (opn *OPNsense) Stream(ctx context.Context, endpoint string, handle func(St
 		return nil
 	}
 	return err
+}
+
+// StreamRefusedError is returned by Stream when OPNsense answers 200 but not with an event stream. Answer is the
+// (shortened) body. Since 26.7.9 OPNsense serves at most 15 streams at once (all users and sessions together, e.g.
+// live views open in the GUI) and answers further ones with the plain text "Unable to open stream, max slots (15)
+// used", translated to the language of the API user; Busy tells whether the answer is that text
+type StreamRefusedError struct {
+	Endpoint    string
+	ContentType string
+	Answer      string
+}
+
+func (e *StreamRefusedError) Error() string {
+	if e.Busy() {
+		return fmt.Sprintf("OPNsense has no free stream slot, other live views (GUI or API) use them all: %q", e.Answer)
+	}
+	if e.Answer == "" {
+		return fmt.Sprintf("%s did not answer with an event stream but an empty %q (unsupported endpoint or OPNsense version?)",
+			e.Endpoint, e.ContentType)
+	}
+	return fmt.Sprintf("%s did not answer with an event stream but %q: %s", e.Endpoint, e.ContentType, e.Answer)
+}
+
+// Busy tells whether OPNsense refused the stream because all its stream slots are in use (26.7.9 and later), a
+// retry can succeed once other streams end. As the text may be translated, any short plain text answer counts:
+// the API answers JSON otherwise, a web page (like a login page of a proxy) is HTML
+func (e *StreamRefusedError) Busy() bool {
+	if strings.Contains(e.Answer, "max slots") {
+		return true
+	}
+	return e.Answer != "" && len(e.Answer) <= 200 && !strings.ContainsAny(e.Answer[:1], "{[<\"")
+}
+
+// IsStreamBusy tells whether err is (or wraps) a StreamRefusedError of a busy OPNsense, see StreamRefusedError.Busy
+func IsStreamBusy(err error) bool {
+	var refused *StreamRefusedError
+	return errors.As(err, &refused) && refused.Busy()
+}
+
+// streamShorten makes a non stream answer printable: whitespace collapsed, at most 200 characters
+func streamShorten(body []byte) string {
+	var text = strings.Join(strings.Fields(string(body)), " ")
+	if runes := []rune(text); len(runes) > 200 {
+		text = string(runes[:200]) + "..."
+	}
+	return text
 }
 
 // ParseEventStream reads server-sent events from reader until EOF (returned as io.EOF) or handle returns an error

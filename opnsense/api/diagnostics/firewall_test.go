@@ -430,6 +430,35 @@ func TestFirewallLogFollowStream(t *testing.T) {
 	}
 }
 
+func TestFirewallLogFollowStreamRetriesBusyFirstConnection(t *testing.T) {
+	var api, server = firewallTestApi(t, func(w http.ResponseWriter, r *http.Request, n int) {
+		if n == 1 {
+			streamTestBusy(w, r)
+			return
+		}
+		firewallTestSSE(w, firewallTestRecord(1, "s1"))
+	})
+	var ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var entries []FirewallLogEntry
+	var warnings []string
+	var err = api.FirewallLogFollow(ctx, FirewallFollowOptions{
+		Stream:     true,
+		MaxBackoff: time.Millisecond,
+		OnWarning:  func(err error) { warnings = append(warnings, err.Error()) },
+	}, func(entry FirewallLogEntry) error {
+		entries = append(entries, entry)
+		cancel()
+		return nil
+	})
+	if err != nil || firewallTestPorts(entries) != "1" || len(server.urls()) != 2 {
+		t.Errorf("err = %v, entries %s after %d connections", err, firewallTestPorts(entries), len(server.urls()))
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "no free stream slot") || !strings.Contains(warnings[0], "reconnecting in") {
+		t.Errorf("warnings = %v", warnings)
+	}
+}
+
 func TestFirewallLogFollowStreamFatal(t *testing.T) {
 	var cases = map[string]func(w http.ResponseWriter){
 		"not found": func(w http.ResponseWriter) {
