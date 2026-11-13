@@ -353,7 +353,8 @@ func (opn *DiagnosticsApi) firewallFollowStream(ctx context.Context, options Fir
 	}
 
 	var backoff time.Duration
-	// errors before the first record are not retried (e.g. an OPNsense version without stream_log)
+	// errors before the first record are not retried (e.g. an OPNsense version without stream_log), except
+	// OPNsense having no free stream slot
 	var connected bool
 	for {
 		var handleErr error
@@ -376,7 +377,7 @@ func (opn *DiagnosticsApi) firewallFollowStream(ctx context.Context, options Fir
 		if ctx.Err() != nil {
 			return nil
 		}
-		if err != nil && !errors.Is(err, io.EOF) && (!connected || firewallFatal(err)) {
+		if err != nil && !errors.Is(err, io.EOF) && ((!connected && !coreapi.IsStreamBusy(err)) || firewallFatal(err)) {
 			return err
 		}
 		if err == nil || errors.Is(err, io.EOF) {

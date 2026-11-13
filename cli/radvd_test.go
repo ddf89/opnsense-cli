@@ -17,7 +17,7 @@ func radvdFake(t *testing.T) *fakeOPN {
 		"mode": "managed", "%mode": "Managed", "DeprecatePrefix": "", "RemoveAdvOnExit": "", "RemoveRoute": "", "routes": "2001:db8:1::/64",
 		"RDNSS": "2001:db8::53", "DNSSL": "example.lan", "dns": "1", "MinRtrAdvInterval": "200", "MaxRtrAdvInterval": "600",
 		"AdvDNSSLLifetime": "", "AdvDefaultLifetime": "", "AdvLinkMTU": "", "AdvPreferredLifetime": "", "AdvRASrcAddress": "",
-		"AdvRDNSSLifetime": "", "AdvRouteLifetime": "", "AdvValidLifetime": "", "AdvDefaultPreference": "medium", "nat64prefix": "", "AdvCurHopLimit": "64"})
+		"AdvRDNSSLifetime": "", "AdvRouteLifetime": "", "AdvValidLifetime": "", "AdvDefaultPreference": "medium", "nat64prefix": "", "nat64prefixLifetime": "600", "AdvCurHopLimit": "64"})
 	return f
 }
 
@@ -34,19 +34,25 @@ func TestRadvdEntry(t *testing.T) {
 	}
 	var show = f.run("/radvd/entry", "show", "LAN")
 	wantExit(t, show, 0)
-	wantContains(t, "show", show.stdout, "disabled:", "min-interval:", "200", "default-preference:", "medium")
+	wantContains(t, "show", show.stdout, "disabled:", "min-interval:", "200", "default-preference:", "medium", "nat64-prefix-lifetime:  600\n")
 
 	wantExit(t, f.run("/radvd/entry", "add", "interface=opt1", "disabled", "mode=Stateless", "dns-servers=2001:db8::53", "max-interval=300", "min-interval=200"), 0)
 	wantJSON(t, f.mutations()[0], map[string]any{"entries": map[string]any{"interface": "opt1", "enabled": "0", "mode": "stateless",
 		"RDNSS": "2001:db8::53", "MaxRtrAdvInterval": "300", "MinRtrAdvInterval": "200"}})
 	wantExit(t, f.run("/radvd/entry", "set", "lan", "routes=", "link-mtu=1500", "deprecate-prefix=off"), 0)
 	wantJSON(t, f.mutations()[1], map[string]any{"entries": map[string]any{"routes": "", "AdvLinkMTU": "1500", "DeprecatePrefix": "off"}})
+	// 26.7.9: the lifetime of the NAT64 prefix, only sent when given
+	wantExit(t, f.run("/radvd/entry", "set", "lan", "nat64-prefix=64:ff9b::/96", "nat64-prefix-lifetime=4294967295"), 0)
+	wantJSON(t, f.mutations()[2], map[string]any{"entries": map[string]any{"nat64prefix": "64:ff9b::/96", "nat64prefixLifetime": "4294967295"}})
+	wantExit(t, f.run("/radvd/entry", "set", "lan", "nat64-prefix-lifetime="), 0)
+	wantJSON(t, f.mutations()[3], map[string]any{"entries": map[string]any{"nat64prefixLifetime": ""}})
 
 	var refused = radvdFake(t)
 	wantFailure(t, refused.run("/radvd/entry", "add", "interface=lan"), "exists already", radvdEntryUuid)
 	for _, args := range [][]string{
 		{"interface=opt1", "min-interval=500", "max-interval=600"}, {"interface=opt1", "mode="}, {"interface=opt1", "max-interval=2000"},
 		{"interface=opt1", "source-address=2001:db8::1"}, {"interface=opt1", "dns-servers=192.0.2.1"}, {"interface=opt1", "link-mtu=100"},
+		{"interface=opt1", "nat64-prefix-lifetime=0"}, {"interface=opt1", "nat64-prefix-lifetime=4294967296"}, {"interface=opt1", "nat64-prefix-lifetime=x"},
 	} {
 		wantFailure(t, refused.run(append([]string{"/radvd/entry", "add"}, args...)...))
 	}

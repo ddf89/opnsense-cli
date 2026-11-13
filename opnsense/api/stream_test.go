@@ -119,7 +119,10 @@ func TestStreamErrors(t *testing.T) {
 		want        string
 	}{
 		{"http error", 404, "application/json", `{"errorMessage":"Endpoint not found"}`, "HTTP 404"},
-		{"not an event stream", 200, "application/json", `[]`, "did not answer with an event stream"},
+		{"not an event stream", 200, "application/json", `[]`, `did not answer with an event stream but "application/json": []`},
+		{"empty answer", 200, "text/html; charset=UTF-8", ``, "empty \"text/html; charset=UTF-8\" (unsupported endpoint"},
+		{"no free stream slot", 200, "text/html; charset=UTF-8", "Unable to open stream, max slots (15) used",
+			`no free stream slot, other live views (GUI or API) use them all: "Unable to open stream, max slots (15) used"`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -133,5 +136,45 @@ func TestStreamErrors(t *testing.T) {
 				t.Errorf("err = %v, want %q", err, c.want)
 			}
 		})
+	}
+}
+
+func TestStreamRefusedError(t *testing.T) {
+	var cases = []struct {
+		name   string
+		body   string
+		busy   bool
+		answer string
+	}{
+		{"slots used", "Unable to open stream, max slots (15) used\n", true, "Unable to open stream, max slots (15) used"},
+		{"translated", "Stream konnte nicht geöffnet werden, alle Plätze (15) belegt", true, "Stream konnte nicht geöffnet werden, alle Plätze (15) belegt"},
+		{"json", `{"status":"failed"}`, false, `{"status":"failed"}`},
+		{"json list", `[]`, false, `[]`},
+		{"json string", `"failed"`, false, `"failed"`},
+		{"html page", "<html>\n  <body>Login</body>\n</html>", false, "<html> <body>Login</body> </html>"},
+		{"empty", "", false, ""},
+		{"long text", strings.Repeat("word ", 100), false, strings.Repeat("word ", 40)[:200] + "..."},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var opn = newStreamTestOPNsense(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+				_, _ = fmt.Fprint(w, c.body)
+			})
+			var err = opn.Stream(context.Background(), opn.EndpointForModule("x"), func(StreamEvent) error { return nil })
+			var refused *StreamRefusedError
+			if !errors.As(err, &refused) {
+				t.Fatalf("err = %v, want a *StreamRefusedError", err)
+			}
+			if refused.Answer != c.answer || refused.ContentType != "text/html; charset=UTF-8" || !strings.HasSuffix(refused.Endpoint, "/api/x") {
+				t.Errorf("refused = %+v, want answer %q", refused, c.answer)
+			}
+			if refused.Busy() != c.busy || IsStreamBusy(err) != c.busy || IsStreamBusy(fmt.Errorf("wrapped: %w", err)) != c.busy {
+				t.Errorf("busy = %v, want %v", refused.Busy(), c.busy)
+			}
+		})
+	}
+	if IsStreamBusy(nil) || IsStreamBusy(errors.New("Unable to open stream, max slots (15) used")) || IsStreamBusy(&HttpError{StatusCode: 503}) {
+		t.Errorf("only a StreamRefusedError can be busy")
 	}
 }

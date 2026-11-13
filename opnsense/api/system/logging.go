@@ -45,7 +45,10 @@ type LoggingDestination struct {
 	// Port of the remote syslog server, empty on create uses the OPNsense default (514)
 	Port string `json:"port,omitempty"`
 	// Rfc5424 "1" sends messages in RFC 5424 format instead of RFC 3164 (BSD), empty on create uses the default ("0")
-	Rfc5424     string `json:"rfc5424,omitempty"`
+	Rfc5424 string `json:"rfc5424,omitempty"`
+	// Suppress "1" suppresses consecutive identical messages for 30 seconds and sends a summary with the number of
+	// repetitions instead (OPNsense 26.7.9+). Empty for older versions and on create to use the default ("0")
+	Suppress    string `json:"suppress,omitempty"`
 	Description string `json:"description"`
 }
 
@@ -60,6 +63,8 @@ type LoggingDestinationFields struct {
 	Certificate *string `json:"certificate,omitempty"`
 	Port        *string `json:"port,omitempty"`
 	Rfc5424     *string `json:"rfc5424,omitempty"`
+	// Suppress needs OPNsense 26.7.9+, older versions reject the unknown field
+	Suppress    *string `json:"suppress,omitempty"`
 	Description *string `json:"description,omitempty"`
 }
 
@@ -159,6 +164,7 @@ func (opn *SystemApi) LoggingDestinationGet(uuid string) (LoggingDestination, er
 		Certificate: field("certificate"),
 		Port:        field("port"),
 		Rfc5424:     field("rfc5424"),
+		Suppress:    field("suppress"),
 		Description: field("description"),
 	}, nil
 }

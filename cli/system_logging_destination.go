@@ -94,11 +94,13 @@ func systemLoggingDestinationArgs(add bool) []Arg {
 		{Name: "facility", Type: List, Values: system.LoggingFacilities, Help: `facilities to send (kern, user, daemon, auth, local0..local7, ...), "" for all`},
 		{Name: "certificate", Help: "refid of the client certificate, required for tls4 / tls6"},
 		{Name: "rfc5424", Type: Bool, Help: "send messages in RFC 5424 format instead of RFC 3164 (BSD)"},
+		{Name: "suppress", Type: Bool, Help: "suppress repeated identical messages for 30 seconds and send a summary with their count (OPNsense 26.7.9+)"},
 		{Name: "description", Help: "description, used to select the destination"},
 	}
 }
 
-// systemLoggingDestinationFields returns the given (set) or all (add, with defaults) field arguments as API values
+// systemLoggingDestinationFields returns the given (set) or all (add, with defaults) field arguments as API values.
+// suppress is only sent when given, also by add: OPNsense before 26.7.9 rejects the unknown field
 func systemLoggingDestinationFields(args *Args, all bool) system.LoggingDestinationFields {
 	var value = func(name string, convert func(string) string) *string {
 		if !all && !args.Has(name) {
@@ -126,7 +128,7 @@ func systemLoggingDestinationFields(args *Args, all bool) system.LoggingDestinat
 		var b, _ = parseBool(v)
 		return Flag(!b)
 	}
-	return system.LoggingDestinationFields{
+	var fields = system.LoggingDestinationFields{
 		Enabled:     value("disabled", notFlag),
 		Transport:   value("transport", lower),
 		Hostname:    value("hostname", trim),
@@ -138,6 +140,10 @@ func systemLoggingDestinationFields(args *Args, all bool) system.LoggingDestinat
 		Rfc5424:     value("rfc5424", flag),
 		Description: value("description", func(v string) string { return v }),
 	}
+	if args.Has("suppress") {
+		fields.Suppress = value("suppress", flag)
+	}
+	return fields
 }
 
 // systemLoggingDestinations lists all destinations in API order
@@ -188,7 +194,7 @@ func systemLoggingDisabled(enabled string) string {
 }
 
 func systemLoggingDestinationDetail(d system.LoggingDestination) [][2]string {
-	return [][2]string{
+	var fields = [][2]string{
 		{"uuid", d.Uuid},
 		{"disabled", systemLoggingDisabled(d.Enabled)},
 		{"transport", d.Transport},
@@ -199,8 +205,11 @@ func systemLoggingDestinationDetail(d system.LoggingDestination) [][2]string {
 		{"facility", d.Facility},
 		{"certificate", d.Certificate},
 		{"rfc5424", YesNo(d.Rfc5424)},
-		{"description", d.Description},
 	}
+	if d.Suppress != "" { // OPNsense 26.7.9+
+		fields = append(fields, [2]string{"suppress", YesNo(d.Suppress)})
+	}
+	return append(fields, [2]string{"description", d.Description})
 }
 
 func systemLoggingDestinationPrint(c *Context, args *Args) error {
@@ -283,6 +292,10 @@ func systemLoggingDestinationAdd(c *Context, args *Args) error {
 		return &coreapi.TooManyFoundError{Name: fmt.Sprintf("logging destination with description %q, %d candidates: %s, cannot replace",
 			description, len(existing), strings.Join(uuids, ", "))}
 	case len(existing) == 1:
+		if fields.Suppress == nil && existing[0].Suppress != "" {
+			var suppressDefault = "0" // a complete replacement resets it, only versions that have the field show it
+			fields.Suppress = &suppressDefault
+		}
 		if err := api.LoggingDestinationUpdate(existing[0].Uuid, fields); err != nil {
 			return err
 		}
@@ -301,6 +314,7 @@ func systemLoggingDestinationAdd(c *Context, args *Args) error {
 		Facility:    *fields.Facility,
 		Certificate: *fields.Certificate,
 		Rfc5424:     *fields.Rfc5424,
+		Suppress:    systemLoggingOptional(fields.Suppress),
 		Description: *fields.Description,
 	})
 	if createErr != nil {
@@ -353,4 +367,12 @@ func systemLoggingDestinationName(destination system.LoggingDestination) string 
 		return fmt.Sprintf("%q", destination.Description)
 	}
 	return destination.Uuid
+}
+
+// systemLoggingOptional returns the value of an optional field, "" (not sent) when it was not given
+func systemLoggingOptional(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

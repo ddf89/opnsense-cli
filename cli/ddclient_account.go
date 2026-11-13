@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	coreapi "opnsense-cli/opnsense/api"
 	"opnsense-cli/opnsense/api/ddclient"
 )
 
@@ -82,7 +83,44 @@ func ddclientAccountNames(c *Context) []string {
 	return names
 }
 
-// ddclientCompleteOptions completes the keys of an option field
+// ddclientNoServices explains an empty service list: the native backend gets its services from configd, without an
+// answer OPNsense offers none and refuses every account (seen on 26.7.9_1)
+func ddclientNoServices(api *ddclient.DdclientApi) error {
+	var backend = "current"
+	if settings, err := api.SettingsGet(); err == nil && settings.Backend != "" {
+		backend = ddclientBackendName(settings.Backend)
+	}
+	return fmt.Errorf("OPNsense offers no services for the %s backend (the plugin's service list is empty; check configd)", backend)
+}
+
+// ddclientHasChoices tells whether an option field offers anything but the empty choice
+func ddclientHasChoices(options []ddclient.Option) bool {
+	for _, option := range options {
+		if option.Key != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// ddclientExplainSave adds the reason to OPNsense's refusal of the service ("A service type is required.") when
+// it offers no services at all: then it refuses every account, also changes that don't touch the service
+func ddclientExplainSave(api *ddclient.DdclientApi, err error) error {
+	var validation *coreapi.ValidationError
+	if !errors.As(err, &validation) {
+		return err
+	}
+	if _, found := validation.Validations["account.service"]; !found {
+		return err
+	}
+	if options, optionsErr := api.AccountOptions(); optionsErr != nil || ddclientHasChoices(options["service"]) {
+		return err
+	}
+	return fmt.Errorf("%w; %w", err, ddclientNoServices(api))
+}
+
+// ddclientCompleteOptions completes the keys of an option field (nothing when OPNsense offers no choices: completion
+// can't explain, the command does)
 func ddclientCompleteOptions(field string) func(c *Context) []string {
 	return func(c *Context) []string {
 		var api, err = ddclientApi(c)
@@ -256,6 +294,9 @@ func ddclientCheckOptions(api *ddclient.DdclientApi, fields ddclient.AccountFiel
 		if !found || value == "" {
 			continue
 		}
+		if check[0] == "service" && !ddclientHasChoices(options["service"]) {
+			return fmt.Errorf("service: can not check %q, OPNsense would refuse it: %w", value, ddclientNoServices(api))
+		}
 		var known bool
 		for _, option := range options[check[0]] {
 			known = known || option.Key == value
@@ -340,6 +381,9 @@ func ddclientAccountPrintOptions(c *Context, api *ddclient.DdclientApi, args *Ar
 	var field = strings.ToLower(args.String("options"))
 	if field == "check-ip" {
 		field = "checkip"
+	}
+	if field == "service" && !ddclientHasChoices(options[field]) {
+		return ddclientNoServices(api)
 	}
 	var rows [][]string
 	for _, option := range options[field] {
@@ -467,7 +511,7 @@ func ddclientAccountAdd(c *Context, args *Args) error {
 			replacement[name] = value
 		}
 		if err := api.AccountUpdate(existing[0], replacement); err != nil {
-			return err
+			return ddclientExplainSave(api, err)
 		}
 		c.Infof("replaced the existing account %s", fields["description"])
 		c.Println(existing[0])
@@ -475,7 +519,7 @@ func ddclientAccountAdd(c *Context, args *Args) error {
 	}
 	uuid, err := api.AccountCreate(fields)
 	if err != nil {
-		return err
+		return ddclientExplainSave(api, err)
 	}
 	c.Println(uuid)
 	return nil
@@ -505,7 +549,7 @@ func ddclientAccountSet(c *Context, args *Args) error {
 	if err := ddclientCheckOptions(api, fields); err != nil {
 		return err
 	}
-	return api.AccountUpdate(account.Uuid, fields)
+	return ddclientExplainSave(api, api.AccountUpdate(account.Uuid, fields))
 }
 
 func ddclientAccountRemove(c *Context, args *Args) error {
@@ -530,7 +574,7 @@ func ddclientAccountEnable(enabled bool) func(c *Context, args *Args) error {
 		if err != nil {
 			return err
 		}
-		return api.AccountSetEnabled(account.Uuid, enabled)
+		return ddclientExplainSave(api, api.AccountSetEnabled(account.Uuid, enabled))
 	}
 }
 

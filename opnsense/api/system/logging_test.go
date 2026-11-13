@@ -138,7 +138,9 @@ func TestLoggingDestinationGet(t *testing.T) {
 			"level":{"info":{"value":"info","selected":1},"warn":{"value":"warn","selected":0},"err":{"value":"error","selected":1}},
 			"facility":{"kern":{"value":"kernel messages","selected":0}},
 			"hostname":"192.0.2.11","certificate":{"":{"value":"None","selected":1},"abc":{"value":"cert","selected":0}},
-			"port":"1514","rfc5424":"1","description":"dup"}}`,
+			"port":"1514","rfc5424":"1","suppress":"1","description":"dup"}}`,
+		// OPNsense up to 26.7.8 has no suppress field
+		"/api/syslog/settings/get_destination/d1":   `{"destination":{"enabled":"0","hostname":"192.0.2.10","port":"514","rfc5424":"0","description":"remote"}}`,
 		"/api/syslog/settings/get_destination/nope": `[]`,
 	}, &requests)
 
@@ -148,10 +150,14 @@ func TestLoggingDestinationGet(t *testing.T) {
 	}
 	var expected = LoggingDestination{
 		Uuid: "d2", Enabled: "1", Transport: "tcp4", Program: "filterlog,unbound", Level: "info,err", Facility: "",
-		Hostname: "192.0.2.11", Certificate: "", Port: "1514", Rfc5424: "1", Description: "dup",
+		Hostname: "192.0.2.11", Certificate: "", Port: "1514", Rfc5424: "1", Suppress: "1", Description: "dup",
 	}
 	if destination != expected {
 		t.Errorf("expected %+v, got %+v", expected, destination)
+	}
+
+	if destination, err = api.LoggingDestinationGet("d1"); err != nil || destination.Suppress != "" || destination.Description != "remote" {
+		t.Errorf("before 26.7.9: expected an empty Suppress, got %+v, %v", destination, err)
 	}
 
 	if _, err = api.LoggingDestinationGet("nope"); !coreapi.IsNotFound(err) {
@@ -177,8 +183,19 @@ func TestLoggingDestinationCreate(t *testing.T) {
 	if _, found := destination["port"]; found {
 		t.Errorf("empty port must be omitted to use the OPNsense default: %s", requests[0].Body)
 	}
+	if _, found := destination["suppress"]; found {
+		t.Errorf("empty suppress must be omitted, OPNsense before 26.7.9 does not know it: %s", requests[0].Body)
+	}
 	if destination["enabled"] != "0" || destination["hostname"] != "192.0.2.10" {
 		t.Errorf("unexpected body %s", requests[0].Body)
+	}
+
+	requests = nil
+	if _, err = api.LoggingDestinationCreate(LoggingDestination{Transport: "udp4", Hostname: "192.0.2.10", Suppress: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if destination = loggingTestBody(t, requests[0].Body)["destination"].(map[string]any); destination["suppress"] != "1" {
+		t.Errorf("expected suppress 1, got %s", requests[0].Body)
 	}
 }
 

@@ -105,6 +105,57 @@ func TestCaptivePortalZone(t *testing.T) {
 		wantJSON(t, wantOneMutation(t, g, "POST", "/api/captiveportal/settings/set_zone/z-1"), map[string]any{"zone": map[string]any{
 			"template": "", "allowedAddresses": "192.0.2.0/24"}})
 	})
+	t.Run("cors policy and origins (26.7.9)", func(t *testing.T) {
+		t.Parallel()
+		var f = newFakeOPN(t)
+		f.search(captivePortalTestZoneSearch, captivePortalTestZoneRow(map[string]any{"corsPolicy": "listed", "%corsPolicy": "Specific origins",
+			"corsOrigins": "https://login.example.com,http://192.0.2.1:8000"}))
+		f.search(captivePortalTestTemplateSearch)
+		f.on("GET", "/api/captiveportal/settings/get_zone", 200, `{"zone":{"interfaces":{"lan":{"value":"LAN","selected":1}},`+
+			`"corsPolicy":{"same_origin":{"value":"Same origin only","selected":0},"listed":{"value":"Specific origins","selected":0},`+
+			`"any":{"value":"Any origin","selected":1}},"corsOrigins":{"":{"value":"","selected":1}},"description":""}}`)
+		f.on("POST", "/api/captiveportal/settings/add_zone", 200, answerAdded("z-new"))
+		f.on("POST", "/api/captiveportal/settings/set_zone/z-1", 200, answerSaved)
+		var show = f.run("/captive-portal/zone", "show", "guests")
+		wantExit(t, show, 0)
+		wantContains(t, "show", show.stdout, "cors-policy:             listed\n", "cors-origins:            https://login.example.com,http://192.0.2.1:8000\n")
+
+		wantExit(t, f.run("/captive-portal/zone", "add", "description=staff", "interfaces=lan", "cors-policy=Same_Origin"), 0)
+		wantJSON(t, f.mutations()[0], map[string]any{"zone": map[string]any{"enabled": "0", "description": "staff", "interfaces": "lan",
+			"corsPolicy": "same_origin"}})
+		wantExit(t, f.run("/captive-portal/zone", "set", "guests", "cors-policy=listed", "cors-origins=https://portal.example.com:8443,http://192.0.2.1"), 0)
+		wantJSON(t, f.mutations()[1], map[string]any{"zone": map[string]any{"corsPolicy": "listed",
+			"corsOrigins": "https://portal.example.com:8443,http://192.0.2.1"}})
+		// replace resets the CORS fields to the defaults where OPNsense has them
+		wantExit(t, f.run("/captive-portal/zone", "add", "description=guests", "interfaces=lan", "replace"), 0)
+		var replaced, _ = f.mutations()[2].json(t)["zone"].(map[string]any)
+		if replaced["corsPolicy"] != "any" || replaced["corsOrigins"] != "" || replaced["roaming"] != "1" {
+			t.Errorf("replace %v", replaced)
+		}
+
+		var refused = captivePortalTestFake(t)
+		for _, args := range [][]string{
+			{"cors-policy="}, {"cors-policy=all"}, {"cors-origins=login.example.com"}, {"cors-origins=https://login.example.com/"},
+			{"cors-origins=https://login.example.com/portal"}, {"cors-origins=ftp://login.example.com"}, {"cors-origins=https://user@login.example.com"},
+			{"cors-origins=https://login.example.com?x=1"}, {"cors-origins=https://login.example.com:0"}, {"cors-origins=https://login.example.com:70000"},
+			{"cors-origins=https://login.example.com#top"},
+		} {
+			wantFailure(t, refused.run(append([]string{"/captive-portal/zone", "set", "guests"}, args...)...), strings.SplitN(args[0], "=", 2)[0])
+		}
+		wantNoMutations(t, refused)
+
+		// before 26.7.9: show leaves them empty, replace does not send them
+		var old = captivePortalTestFake(t)
+		old.on("POST", "/api/captiveportal/settings/set_zone/z-1", 200, answerSaved)
+		var oldShow = old.run("/captive-portal/zone", "show", "guests")
+		wantExit(t, oldShow, 0)
+		wantContains(t, "show", oldShow.stdout, "cors-policy:")
+		wantExit(t, old.run("/captive-portal/zone", "add", "description=guests", "interfaces=lan", "replace"), 0)
+		var oldReplaced, _ = wantOneMutation(t, old, "POST", "/api/captiveportal/settings/set_zone/z-1").json(t)["zone"].(map[string]any)
+		if _, sent := oldReplaced["corsPolicy"]; sent {
+			t.Errorf("replace sent corsPolicy to an OPNsense without it: %v", oldReplaced)
+		}
+	})
 }
 
 func TestCaptivePortalTemplate(t *testing.T) {

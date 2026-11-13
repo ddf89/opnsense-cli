@@ -309,3 +309,129 @@ func TestUnusedVhid(t *testing.T) {
 		t.Error("want an error")
 	}
 }
+
+// testTapSearch is a tap_settings/search_item answer of OPNsense 26.7.9: deviceName is set by the model
+const testTapSearch = `{"rows":[{"uuid":"t1","deviceId":"1","deviceName":"tap01","description":"lab"},` +
+	`{"uuid":"t2","deviceId":"2","deviceName":"tap02","description":"spare"}],"rowCount":2,"total":2,"current":1}`
+
+// testTapAssignments assigns tap01 as opt1 (assignment/search_item)
+const testTapAssignments = `{"rows":[{"uuid":"lan","identifier":"lan","descr":"LAN","if":"vtnet0"},` +
+	`{"uuid":"opt1","identifier":"opt1","descr":"lab","if":"tap01"}]}`
+
+func TestTap(t *testing.T) {
+	var api, requests = newTestApi(t, func(r testRequest) (int, string) {
+		switch r.Path {
+		case "/api/interfaces/tap_settings/search_item":
+			return 200, testTapSearch
+		case "/api/interfaces/assignment/search_item":
+			return 200, testTapAssignments
+		case "/api/interfaces/tap_settings/add_item":
+			return 200, `{"result":"saved","uuid":"t3"}`
+		case "/api/interfaces/tap_settings/reconfigure":
+			return 200, `{"status":"ok"}`
+		}
+		return 200, `{"result":"deleted"}`
+	})
+	var items, err = api.List(Taps)
+	if err != nil || len(items) != 2 || Taps.Device(items[0]) != "tap01" || !Taps.HasDevice() || Taps.Since() != "26.7.9" {
+		t.Fatalf("List: %+v / %v", items, err)
+	}
+	if uuid, err := api.Create(Taps, map[string]string{"description": "new"}); err != nil || uuid != "t3" {
+		t.Errorf("Create: %q / %v", uuid, err)
+	}
+	if got := (*requests)[1]; !reflect.DeepEqual(got.Body, map[string]any{"tap": map[string]any{"description": "new"}}) {
+		t.Errorf("add_item body %+v", got.Body)
+	}
+	if err := api.Reconfigure(Taps); err != nil {
+		t.Errorf("Reconfigure: %v", err)
+	}
+
+	// tap01 is assigned: refused before del_item, tap02 is removed
+	*requests = nil
+	var assigned *AssignedError
+	if err := api.Remove(Taps, "t1"); !errors.As(err, &assigned) || assigned.Identifier != "opt1" ||
+		!strings.Contains(err.Error(), "cannot remove TAP tap01: it is assigned as interface opt1") {
+		t.Errorf("want an AssignedError, got %v", err)
+	}
+	for _, request := range *requests {
+		if request.Method != "GET" {
+			t.Errorf("an assigned TAP must not be removed: %+v", request)
+		}
+	}
+	if err := api.Remove(Taps, "t2"); err != nil {
+		t.Errorf("Remove t2: %v", err)
+	}
+	if last := (*requests)[len(*requests)-1]; last.Method != "POST" || last.Path != "/api/interfaces/tap_settings/del_item/t2" {
+		t.Errorf("unexpected last request %+v", last)
+	}
+	if err := api.Remove(Taps, "nosuch"); !coreapi.IsNotFound(err) {
+		t.Errorf("want NotFoundError, got %v", err)
+	}
+}
+
+// TestAssignedGuard: loopbacks and VXLANs are checked like TAPs, VLANs are left to OPNsense (it refuses them itself)
+func TestAssignedGuard(t *testing.T) {
+	var api, requests = newTestApi(t, func(r testRequest) (int, string) {
+		switch r.Path {
+		case "/api/interfaces/loopback_settings/search_item", "/api/interfaces/vxlan_settings/search_item":
+			return 200, `{"rows":[{"uuid":"l1","deviceId":"1","description":"x","vxlanid":"5"}]}`
+		case "/api/interfaces/assignment/search_item":
+			return 200, `{"rows":[{"uuid":"opt1","identifier":"opt1","if":"lo1"},{"uuid":"opt2","identifier":"opt2","if":"vxlan1"}]}`
+		}
+		return 200, `{"result":"deleted"}`
+	})
+	for kind, identifier := range map[*Kind]string{&Loopbacks: "opt1", &Vxlans: "opt2"} {
+		var assigned *AssignedError
+		if err := api.Remove(*kind, "l1"); !errors.As(err, &assigned) || assigned.Identifier != identifier {
+			t.Errorf("%s: want an AssignedError, got %v", kind.Name, err)
+		}
+	}
+	*requests = nil
+	if err := api.Remove(Vlans, "v1"); err != nil || len(*requests) != 1 {
+		t.Errorf("VLAN: %v, requests %+v", err, *requests)
+	}
+
+	// the assignments can not be read: nothing is removed
+	var failing, failingRequests = newTestApi(t, func(r testRequest) (int, string) {
+		if r.Path == "/api/interfaces/assignment/search_item" {
+			return 403, `{"status":403,"message":"Forbidden"}`
+		}
+		return 200, `{"rows":[{"uuid":"l1","deviceId":"1","description":"x"}]}`
+	})
+	if err := failing.Remove(Loopbacks, "l1"); err == nil || !strings.Contains(err.Error(), "cannot check whether lo1 is assigned") {
+		t.Errorf("want the assignment error, got %v", err)
+	}
+	for _, request := range *failingRequests {
+		if request.Method != "GET" {
+			t.Errorf("unexpected mutation %+v", request)
+		}
+	}
+}
+
+// TestTapUnsupported: before 26.7.9 the TAP endpoints answer 404
+func TestTapUnsupported(t *testing.T) {
+	var api, _ = newTestApi(t, func(r testRequest) (int, string) { return 404, `{"errorMessage":"Endpoint not found"}` })
+	var calls = map[string]func() error{
+		"List":        func() error { _, err := api.List(Taps); return err },
+		"Create":      func() error { _, err := api.Create(Taps, map[string]string{"description": "x"}); return err },
+		"Update":      func() error { return api.Update(Taps, "t1", map[string]string{"description": "x"}) },
+		"Remove":      func() error { return api.Remove(Taps, "t1") },
+		"Reconfigure": func() error { return api.Reconfigure(Taps) },
+		"Form":        func() error { _, err := api.Form(Taps); return err },
+	}
+	for name, call := range calls {
+		var err = call()
+		var unsupported *UnsupportedError
+		if !errors.Is(err, ErrUnsupported) || !errors.As(err, &unsupported) || err.Error() != "TAP devices need OPNsense 26.7.9 or later" {
+			t.Errorf("%s: want the version error, got %v", name, err)
+		}
+		var httpErr *coreapi.HttpError
+		if !errors.As(err, &httpErr) || httpErr.StatusCode != 404 {
+			t.Errorf("%s: the HTTP error must stay wrapped: %v", name, err)
+		}
+	}
+	// kinds of 26.7 keep the plain 404
+	if _, err := api.List(Loopbacks); errors.Is(err, ErrUnsupported) || err == nil {
+		t.Errorf("loopback 404: %v", err)
+	}
+}

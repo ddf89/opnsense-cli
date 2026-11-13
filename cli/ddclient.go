@@ -187,6 +187,12 @@ func ddclientServiceAction(action string) func(c *Context, _ *Args) error {
 		}
 		switch action {
 		case "start":
+			// OPNsense answers a start of the running service with "Error (1)" (the daemon refuses a second
+			// instance), so a running service is reported instead of started again
+			if status, statusErr := api.ServiceStatus(); statusErr == nil && status == "running" {
+				c.Infof("the Dynamic DNS service is running already")
+				return nil
+			}
 			return api.ServiceStart()
 		case "stop":
 			return api.ServiceStop()

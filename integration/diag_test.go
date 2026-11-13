@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -248,8 +247,9 @@ func TestStreamErrors(t *testing.T) {
 	t.Run("no event stream", func(t *testing.T) {
 		// a normal JSON endpoint must not be read as an (empty) stream
 		var err = core.Stream(ctx, core.EndpointForPluginControllerMethod("dnsmasq", "service", "status"), func(api.StreamEvent) error { return nil })
-		if err == nil || errors.Is(err, io.EOF) {
-			t.Errorf("want a content type error, got %v", err)
+		var refused *api.StreamRefusedError
+		if !errors.As(err, &refused) || !strings.Contains(refused.Answer, `"status"`) || refused.Busy() || api.IsStreamBusy(err) {
+			t.Errorf("want a *api.StreamRefusedError with the JSON answer that is not busy, got %T: %v", err, err)
 		}
 	})
 

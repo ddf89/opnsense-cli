@@ -133,6 +133,34 @@ func TestAccountOptions(t *testing.T) {
 	}
 }
 
+// TestAccountOptionsEmpty: the native backend's service list comes from configd, without an answer get_item sends
+// the choices as [] (seen on 26.7.9_1), null is accepted the same way
+func TestAccountOptionsEmpty(t *testing.T) {
+	for _, empty := range []string{`[]`, `[ ]`, `null`, `{}`} {
+		var api, _ = newTestApi(t, map[string]string{"GET /api/dyndns/accounts/get_item": `{"account":{"enabled":"1",
+"service":` + empty + `,"protocol":{"":{"value":"None","selected":1}},
+"checkip":{"if":{"value":"Interface [IPv4]","selected":0}},"interface":[]}}`})
+		var options, err = api.AccountOptions()
+		if err != nil {
+			t.Fatalf("service %s: %v", empty, err)
+		}
+		if len(options["service"]) != 0 || len(options["interface"]) != 0 || len(options["checkip"]) != 1 || len(options["protocol"]) != 1 {
+			t.Errorf("service %s: options %+v", empty, options)
+		}
+	}
+	for _, bad := range []string{`["dyndns2"]`, `"dyndns2"`, `1`} {
+		var api, _ = newTestApi(t, map[string]string{"GET /api/dyndns/accounts/get_item": `{"account":{"service":` + bad +
+			`,"protocol":{},"checkip":{},"interface":{}}}`})
+		if _, err := api.AccountOptions(); err == nil || !strings.Contains(err.Error(), "unexpected service choices") {
+			t.Errorf("service %s: error %v", bad, err)
+		}
+	}
+	var api, _ = newTestApi(t, map[string]string{"GET /api/dyndns/accounts/get_item/" + testUuid: `{"account":{"protocol":[]}}`})
+	if protocol, err := api.AccountProtocol(testUuid); err != nil || protocol != "" {
+		t.Errorf("protocol %q, %v", protocol, err)
+	}
+}
+
 func TestAccountMutations(t *testing.T) {
 	var api, ts = newTestApi(t, map[string]string{searchPath: searchRows,
 		"POST /api/dyndns/accounts/add_item":                  `{"result":"saved","uuid":"new-uuid"}`,

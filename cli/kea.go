@@ -160,6 +160,7 @@ func keaSubnetItems(version int) *keaItems {
 	var records = keaRecordsOf(func(api *dhcp.DhcpApi) keaRecords { return api.KeaSubnets4() })
 	var columns = []keaColumn{
 		keaColumnOf("SUBNET", "subnet"),
+		keaColumnOf("INTERFACE", "interface"),
 		{header: "POOLS", value: func(row dhcp.Row) string { return keaLinesText(row["pools"]) }},
 		keaColumnOf("ROUTERS", "option_data.routers"),
 		keaColumnOf("DNS-SERVERS", "option_data.domain_name_servers"),
@@ -167,7 +168,13 @@ func keaSubnetItems(version int) *keaItems {
 	}
 	var long = `Pools are address ranges first-last or networks in CIDR notation inside the subnet. With auto-options
 (the default) OPNsense fills routers, dns-servers and ntp-servers with the firewall's address in the subnet on every
-save, give auto-options=no to set them yourself.`
+save, give auto-options=no to set them yourself.
+
+Shared networks (OPNsense 26.7.9+): subnets bound to the same interface (interface=) form a shared network on it.
+Kea then admits a client to such a subnet by a DHCP option it sends instead of by the address of the interface, so
+interface= needs match-code=, match-encoding= and match-data= (e.g. match-code=60 match-encoding=string
+match-data=PXEClient for the vendor class; OPNsense refuses encodings that do not fit a known option). The
+interface must be one of the interfaces of "/kea/dhcp4/settings".`
 	if version == 6 {
 		records = keaRecordsOf(func(api *dhcp.DhcpApi) keaRecords { return api.KeaSubnets6() })
 		columns = []keaColumn{
@@ -212,6 +219,9 @@ dynamic-prefix the subnet follows the prefix delegated to the interface (subnet 
 			if version == 6 && add && args.String("subnet") == "" && !args.Bool("dynamic-prefix") {
 				return fmt.Errorf("add: subnet= is required (or dynamic-prefix)")
 			}
+			if version == 4 {
+				return keaCheckSubnetMatch(add, args)
+			}
 			return nil
 		},
 	}
@@ -244,6 +254,13 @@ func keaSubnetFields(version int, options *keaRefSpec) func(add bool) []keaField
 				{Arg: Arg{Name: "next-server", Help: "next server address for network boot (siaddr)", Validate: keaValidateAddress(4)}, api: "next_server"},
 				{Arg: Arg{Name: "match-client-id", Type: Bool, Help: "identify clients by their client id when they send one (default yes)"}, api: "match-client-id", kind: keaFlag},
 				{Arg: Arg{Name: "allocator", Values: []string{"iterative", "random", "flq"}, Help: "address allocation strategy, empty for the default"}, api: "allocator"},
+				// shared networks, OPNsense 26.7.9+: only sent when given
+				{Arg: Arg{Name: "interface", Help: "bind the subnet to this interface (key like lan, one of the settings), subnets of one interface form a shared network; needs match-code; empty for none (26.7.9+)"},
+					api: "interface", options: true},
+				{Arg: Arg{Name: "match-code", Type: Int, Help: "only clients that sent this DHCP option code (with match-data) may use the subnet, empty for all (26.7.9+)",
+					Validate: ValidateRange(0, 254)}, api: "match_code", options: true},
+				{Arg: Arg{Name: "match-encoding", Values: keaOptionEncodings, Help: "encoding of match-data (26.7.9+)"}, api: "match_encoding"},
+				{Arg: Arg{Name: "match-data", Help: "the value the client must have sent in match-code (26.7.9+)", Validate: keaValidateOptionText}, api: "match_data"},
 			}
 		} else {
 			subnet.Help, subnet.Validate = "the network in CIDR notation, like 2001:db8::/64 (empty with dynamic-prefix)", keaValidateNetwork(6)
@@ -500,7 +517,7 @@ func keaOptionItems(version int) *keaItems {
 		records = keaRecordsOf(func(api *dhcp.DhcpApi) keaRecords { return api.KeaOptions6() })
 		maxCode = 65535
 	}
-	var encodings = []string{"hex", "ipv4-address", "ipv6-address", "uint8", "uint16", "uint32", "int32", "boolean", "string", "fqdn"}
+	var encodings = keaOptionEncodings
 	return &keaItems{
 		path: fmt.Sprintf("kea/dhcp%d/option", version),
 		help: fmt.Sprintf("custom DHCPv%d options, sent by the subnets and reservations that list them (Services > Kea DHCP > Kea DHCPv%d > Options)", version, version),
@@ -535,13 +552,43 @@ their description (options=).`,
 		same: func(row dhcp.Row, fields dhcp.Fields) bool {
 			return strings.EqualFold(row["description"], fields["description"])
 		},
-		check: func(_ bool, args *Args) error {
-			if args.Has("match-code") && args.Has("match-data") && (args.String("match-code") == "") != (args.String("match-data") == "") {
-				return fmt.Errorf("match-code and match-data must be given both or cleared both")
-			}
-			return nil
-		},
+		check: func(_ bool, args *Args) error { return keaCheckMatch(args) },
 	}
+}
+
+// keaOptionEncodings are the encodings of option data and of the match data of options and subnets
+var keaOptionEncodings = []string{"hex", "ipv4-address", "ipv6-address", "uint8", "uint16", "uint32", "int32", "boolean", "string", "fqdn"}
+
+// keaCheckMatch refuses a match-code without match-data and the other way round when both are given
+func keaCheckMatch(args *Args) error {
+	if args.Has("match-code") && args.Has("match-data") && (args.String("match-code") == "") != (args.String("match-data") == "") {
+		return fmt.Errorf("match-code and match-data must be given both or cleared both")
+	}
+	return nil
+}
+
+// keaCheckSubnetMatch checks the shared network arguments of a DHCPv4 subnet like OPNsense does: an interface needs
+// a match-code, match-code and match-data go together and match-data needs its match-encoding. add knows all
+// fields, set only what is given (OPNsense checks the stored ones)
+func keaCheckSubnetMatch(add bool, args *Args) error {
+	if err := keaCheckMatch(args); err != nil {
+		return err
+	}
+	if !add {
+		if args.String("interface") != "" && args.Has("match-code") && args.String("match-code") == "" {
+			return fmt.Errorf("a subnet with an interface needs a match-code")
+		}
+		return nil
+	}
+	switch {
+	case args.String("interface") != "" && args.String("match-code") == "":
+		return fmt.Errorf("interface= needs match-code=, match-encoding= and match-data=: the subnets of a shared network admit clients by a DHCP option")
+	case (args.String("match-code") == "") != (args.String("match-data") == ""):
+		return fmt.Errorf("match-code and match-data must be given both")
+	case args.String("match-data") != "" && args.String("match-encoding") == "":
+		return fmt.Errorf("match-data needs match-encoding=")
+	}
+	return nil
 }
 
 // --- HA peers

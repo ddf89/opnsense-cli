@@ -134,7 +134,8 @@ func TestValue(t *testing.T) {
 
 func TestZones(t *testing.T) {
 	var api, requests = testApi(t, map[string]any{
-		"GET " + testZoneSearch: testRows(testZoneRow(nil), testZoneRow(map[string]any{"uuid": "z-2", "description": "dup", "enabled": "0"}),
+		"GET " + testZoneSearch: testRows(testZoneRow(map[string]any{"corsPolicy": "listed", "%corsPolicy": "Specific origins",
+			"corsOrigins": "https://login.example.com"}), testZoneRow(map[string]any{"uuid": "z-2", "description": "dup", "enabled": "0"}),
 			testZoneRow(map[string]any{"uuid": "z-3", "description": "DUP"})),
 		"POST /api/captiveportal/settings/add_zone":          `{"result":"saved","uuid":"z-new"}`,
 		"POST /api/captiveportal/settings/set_zone/z-1":      `{"result":"failed","validations":{"zone.interfaces":"At least one interface must be selected."}}`,
@@ -145,7 +146,8 @@ func TestZones(t *testing.T) {
 		"POST /api/captiveportal/settings/toggle_zone/z-x/0": `{"result":"failed"}`,
 	})
 	var raw, zones, err = api.ZoneListRaw("")
-	if err != nil || len(raw) != 3 || zones[0].InterfaceNames != "LAN" || zones[0].AuthServers != "Local Database" {
+	if err != nil || len(raw) != 3 || zones[0].InterfaceNames != "LAN" || zones[0].AuthServers != "Local Database" ||
+		zones[0].CorsPolicy != "listed" || zones[0].CorsOrigins != "https://login.example.com" || zones[1].CorsPolicy != "" {
 		t.Fatalf("ZoneListRaw: %+v %v", zones, err)
 	}
 	if zone, err := api.ZoneGetByDescription("Guests"); err != nil || zone.Uuid != "z-1" {
@@ -165,7 +167,7 @@ func TestZones(t *testing.T) {
 	if err := api.ZoneUpdate("z-1", ZoneFields{"interfaces": ""}); !errors.As(err, &validation) || validation.Validations["zone.interfaces"] == "" {
 		t.Errorf("validation: %v", err)
 	}
-	if err := api.ZoneUpdate("z-2", ZoneFields{"idletimeout": "5"}); err != nil {
+	if err := api.ZoneUpdate("z-2", ZoneFields{"idletimeout": "5", "corsPolicy": "same_origin", "corsOrigins": ""}); err != nil {
 		t.Error(err)
 	}
 	if err := api.ZoneUpdate("z-ghost", ZoneFields{"idletimeout": "5"}); !coreapi.IsNotFound(err) {
@@ -185,7 +187,7 @@ func TestZones(t *testing.T) {
 	}
 	var posted = testMutations(requests())
 	if len(posted) != 7 || !reflect.DeepEqual(posted[0].Body, map[string]any{"zone": map[string]any{"enabled": "0", "interfaces": "lan", "description": "new"}}) ||
-		!reflect.DeepEqual(posted[2].Body, map[string]any{"zone": map[string]any{"idletimeout": "5"}}) {
+		!reflect.DeepEqual(posted[2].Body, map[string]any{"zone": map[string]any{"idletimeout": "5", "corsPolicy": "same_origin", "corsOrigins": ""}}) {
 		t.Errorf("posted %+v", posted)
 	}
 }

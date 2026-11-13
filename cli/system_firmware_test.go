@@ -271,3 +271,42 @@ func TestSystemLicensePrint(t *testing.T) {
 	wantNotContains(t, "stdout", r.stdout, "license:")
 	wantNoMutations(t, f)
 }
+
+func TestSystemFirmwareReinstallSet(t *testing.T) {
+	t.Parallel()
+	t.Run("base follows to the reboot", func(t *testing.T) {
+		t.Parallel()
+		var f = systemFirmwareFake(t, `{"status":"running","log":"***GOT REQUEST TO REINSTALL***\n"}`,
+			`{"status":"reboot","log":"***GOT REQUEST TO REINSTALL***\nInstalling base-26.7.9-amd64.txz... done\nPlease reboot.\n***REBOOT***"}`)
+		f.on("POST", "/api/core/firmware/reinstall/base", 200, systemFirmwareStarted)
+		var r = f.run("/system/firmware", "reinstall", "base", "confirm=yes")
+		wantExit(t, r, 0)
+		wantContains(t, "stderr", r.stderr, "Installing base-26.7.9-amd64.txz", "the reinstall of the base finished, the firewall reboots now")
+		wantOneMutation(t, f, "POST", "/api/core/firmware/reinstall/base")
+	})
+	t.Run("a locked kernel ends without reboot and fails", func(t *testing.T) {
+		t.Parallel()
+		var f = systemFirmwareFake(t, `{"status":"done","log":"***GOT REQUEST TO REINSTALL***\nThe kernel package is locked.\n***DONE***"}`)
+		f.on("POST", "/api/core/firmware/reinstall/kernel", 200, systemFirmwareStarted)
+		wantFailure(t, f.run("/system/firmware", "reinstall", "kernel", "confirm=yes"),
+			"the reinstall of the kernel ended without a reboot: The kernel package is locked.")
+		wantOneMutation(t, f, "POST", "/api/core/firmware/reinstall/kernel")
+	})
+	t.Run("background only starts it", func(t *testing.T) {
+		t.Parallel()
+		var f = systemFirmwareFake(t)
+		f.on("POST", "/api/core/firmware/reinstall/base", 200, systemFirmwareStarted)
+		var r = f.run("/system/firmware", "reinstall", "base", "background", "confirm=yes")
+		wantExit(t, r, 0)
+		wantContains(t, "stderr", r.stderr, "reinstall of the base started")
+		wantOneMutation(t, f, "POST", "/api/core/firmware/reinstall/base")
+	})
+	t.Run("refused before anything is sent", func(t *testing.T) {
+		t.Parallel()
+		var f = systemFirmwareFake(t)
+		wantFailure(t, f.run("/system/firmware", "reinstall", "base"), "reinstalls the base system or kernel files", "confirm=yes")
+		wantFailure(t, f.run("/system/firmware", "reinstall", "world", "confirm=yes"), "world")
+		wantFailure(t, f.run("/system/firmware", "reinstall", "confirm=yes"), "set")
+		wantNoMutations(t, f)
+	})
+}

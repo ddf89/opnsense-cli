@@ -81,6 +81,12 @@ func trafficTestSSE(hold bool, data ...string) http.HandlerFunc {
 	}
 }
 
+// streamTestBusy answers like OPNsense 26.7.9+ when all its stream slots are in use: 200, plain text
+func streamTestBusy(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+	_, _ = io.WriteString(w, "Unable to open stream, max slots (15) used")
+}
+
 // trafficTestSample builds a traffic stream event
 func trafficTestSample(time float64, lanIn int, lanOut int) string {
 	return fmt.Sprintf(`{"interfaces":{"lan":{"inbytes":%d,"outbytes":%d,"inpkts":%d,"outpkts":%d,"inerrs":1,"outerrs":0,"collisions":0,"name":"LAN"},`+
@@ -472,5 +478,74 @@ func TestTrafficTopEmptyAndErrors(t *testing.T) {
 	}
 	if _, _, err := api2.TrafficTop([]string{"lan"}); err == nil || !strings.Contains(err.Error(), "HTTP 404") {
 		t.Errorf("want HTTP 404, got %v", err)
+	}
+}
+
+func TestTrafficWatchRetriesBusyFirstConnection(t *testing.T) {
+	var mu sync.Mutex
+	var connection = 0
+	var api, calls = trafficTestApi(t, map[string]http.HandlerFunc{
+		"GET /api/diagnostics/traffic/stream/1": func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			connection++
+			var n = connection
+			mu.Unlock()
+			if n <= 2 {
+				streamTestBusy(w, r)
+				return
+			}
+			trafficTestSSE(true, trafficTestSample(100, 0, 0), trafficTestSample(101, 1000, 0))(w, r)
+		},
+	})
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	var sleeper = &trafficTestSleeper{maxSleeps: 5, cancel: cancel}
+	var reconnects []error
+	var got []float64
+	var err = api.TrafficWatch(ctx, 1, sleeper.options(&reconnects), func(sample TrafficSample, rates []TrafficRate) error {
+		got = append(got, rates[0].InBitsPerSecond)
+		cancel()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("want nil after cancel, got %v", err)
+	}
+	if len(calls()) != 3 || len(got) != 1 || got[0] != 8000 {
+		t.Errorf("want the rate of the third connection, got %v after %d requests", got, len(calls()))
+	}
+	if fmt.Sprint(sleeper.delays) != "[1s 2s]" || len(reconnects) != 2 || !coreapi.IsStreamBusy(reconnects[0]) ||
+		!strings.Contains(reconnects[1].Error(), "no free stream slot") {
+		t.Errorf("unexpected reconnects %v after delays %v", reconnects, sleeper.delays)
+	}
+}
+
+func TestCpuWatchRetriesBusyFirstConnection(t *testing.T) {
+	var mu sync.Mutex
+	var connection = 0
+	var api, calls = trafficTestApi(t, map[string]http.HandlerFunc{
+		"GET /api/diagnostics/cpu_usage/stream": func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			connection++
+			var n = connection
+			mu.Unlock()
+			if n == 1 {
+				streamTestBusy(w, r)
+				return
+			}
+			trafficTestSSE(true, `{"total":50,"idle":50}`, `{"total":7,"user":5,"sys":2,"idle":93}`)(w, r)
+		},
+	})
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	var sleeper = &trafficTestSleeper{maxSleeps: 5, cancel: cancel}
+	var reconnects []error
+	var got []int
+	var err = api.CpuWatch(ctx, sleeper.options(&reconnects), func(usage CpuUsage) error {
+		got = append(got, usage.Total)
+		cancel()
+		return nil
+	})
+	if err != nil || len(calls()) != 2 || fmt.Sprint(got) != "[7]" || len(reconnects) != 1 || !coreapi.IsStreamBusy(reconnects[0]) {
+		t.Errorf("err = %v, got %v after %d requests, reconnects %v", err, got, len(calls()), reconnects)
 	}
 }

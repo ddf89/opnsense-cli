@@ -272,12 +272,14 @@ func (opn *DiagnosticsApi) LogFollow(ctx context.Context, module string, scope s
 			return handleErr.err
 		}
 		// errors that a reconnect will not fix: client errors like 401 / 403 / 404, or a first connection that
-		// fails right away (e.g. no event stream because the endpoint is not supported)
+		// fails right away (e.g. no event stream because the endpoint is not supported). OPNsense having no free
+		// stream slot is retried
 		var httpErr *coreapi.HttpError
 		if errors.As(err, &httpErr) && httpErr.StatusCode < 500 {
 			return err
 		}
-		if err != nil && !errors.Is(err, io.EOF) && first && !follower.receivedOnConnection && time.Since(started) < 5*time.Second {
+		if err != nil && !errors.Is(err, io.EOF) && first && !follower.receivedOnConnection && time.Since(started) < 5*time.Second &&
+			!coreapi.IsStreamBusy(err) {
 			return err
 		}
 		first = false
@@ -300,6 +302,11 @@ func (opn *DiagnosticsApi) LogFollow(ctx context.Context, module string, scope s
 
 		// ask for as many backlog lines as remembered, to find where the previous stream stopped
 		backlog = len(follower.recent)
+		if backlog == 0 {
+			// nothing passed on yet (e.g. OPNsense had no free stream slot): start over with the requested tail
+			backlog = opts.Lines
+			follower.expected = 0
+		}
 	}
 }
 

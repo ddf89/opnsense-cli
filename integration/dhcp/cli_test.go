@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"opnsense-cli/opnsense/api/dhcp"
 )
 
 // The opn /kea, /dhcrelay and /radvd menus through the binary against the live box
@@ -215,6 +217,49 @@ func TestCliDhcrelay(t *testing.T) {
 	mustOpn(t, "/dhcrelay/destination", "remove", destination)
 }
 
+// TestCliKeaDhcp4SharedNetwork binds a subnet to lan with an admission option (OPNsense 26.7.9+); DHCPv4 stays
+// disabled, lan is selected in its interfaces only for the test
+func TestCliKeaDhcp4SharedNetwork(t *testing.T) {
+	var dhcpApi = dhcpApi(t)
+	var defaults, err = dhcpApi.KeaSubnets4().Defaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, known := defaults["match_code"]; !known {
+		t.Skip("this OPNsense has no shared networks (26.7.9+)")
+	}
+	keaWithInterface(t, dhcpApi, dhcp.KeaDhcp4Settings, "lan")
+	var subnet = testLabel("cli-shared")
+
+	// refused before anything is sent
+	var unmatched = mustFailOpn(t, "/kea/dhcp4/subnet", "add", "subnet=192.0.2.0/24", "interface=lan", "description="+subnet)
+	requireContains(t, unmatched, unmatched.stderr, "match-code")
+	mustFailOpn(t, "/kea/dhcp4/subnet", "add", "subnet=192.0.2.0/24", "match-code=60", "match-data=voip", "description="+subnet)
+
+	var uuid = uuidFrom(t, mustOpn(t, "/kea/dhcp4/subnet", "add", "subnet=192.0.2.0/24", "pools=192.0.2.10-192.0.2.20", "auto-options=no",
+		"interface=lan", "match-code=60", "match-encoding=string", "match-data=voip", "description="+subnet))
+	t.Cleanup(func() { runOpn(t, "", "/kea/dhcp4/subnet", "remove", uuid) })
+	var show = mustOpn(t, "/kea/dhcp4/subnet", "show", subnet)
+	requireContains(t, show, show.stdout, "interface:", "lan", "match-code:", "60", "match-encoding:", "string", "match-data:", "voip")
+	var print = mustOpn(t, "/kea/dhcp4/subnet", "print", "search="+runPrefix)
+	requireContains(t, print, print.stdout, "INTERFACE", "lan")
+
+	// OPNsense refuses an interface without match-code and one that is not selected in the settings
+	var noCode = mustFailOpn(t, "/kea/dhcp4/subnet", "set", subnet, "match-code=", "match-data=")
+	requireContains(t, noCode, noCode.stderr, "match-code")
+	var notSelected = mustFailOpn(t, "/kea/dhcp4/subnet", "set", subnet, "interface=wan")
+	requireContains(t, notSelected, notSelected.stderr, "interface")
+
+	// hex data and clearing the binding
+	mustOpn(t, "/kea/dhcp4/subnet", "set", subnet, "match-encoding=hex", "match-data=766f6970")
+	mustOpn(t, "/kea/dhcp4/subnet", "set", subnet, "interface=", "match-code=", "match-encoding=", "match-data=")
+	show = mustOpn(t, "/kea/dhcp4/subnet", "show", subnet)
+	if strings.Contains(show.stdout, "766f6970") || strings.Contains(show.stdout, "voip") {
+		t.Errorf("the match was not cleared:\n%s", show)
+	}
+	mustOpn(t, "/kea/dhcp4/subnet", "remove", uuid)
+}
+
 func TestCliRadvd(t *testing.T) {
 	var entries = mustOpn(t, "/radvd/entry", "print")
 	if strings.Contains(entries.stdout, " lan ") {
@@ -228,6 +273,16 @@ func TestCliRadvd(t *testing.T) {
 	mustOpn(t, "/radvd/entry", "set", "lan", "max-interval=300", "min-interval=200")
 	var invalid = mustFailOpn(t, "/radvd/entry", "set", "lan", "min-interval=290")
 	requireContains(t, invalid, invalid.stderr, "min-interval")
+	// the NAT64 prefix lifetime of 26.7.9
+	if entries, err := dhcpApi(t).RadvdEntries().Defaults(); err == nil {
+		if _, known := entries["nat64prefixLifetime"]; known {
+			mustOpn(t, "/radvd/entry", "set", "lan", "nat64-prefix=64:ff9b::/96", "nat64-prefix-lifetime=1200")
+			show = mustOpn(t, "/radvd/entry", "show", "lan")
+			requireContains(t, show, show.stdout, "nat64-prefix:", "64:ff9b::/96", "nat64-prefix-lifetime:", "1200")
+			mustFailOpn(t, "/radvd/entry", "set", "lan", "nat64-prefix-lifetime=0")
+			mustOpn(t, "/radvd/entry", "set", "lan", "nat64-prefix-lifetime=")
+		}
+	}
 	mustFailOpn(t, "/radvd/entry", "add", "interface=lan", "disabled")
 	mustOpn(t, "/radvd/entry", "remove", "lan")
 	mustOpn(t, "/radvd/service", "status")

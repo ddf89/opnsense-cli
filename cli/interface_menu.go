@@ -12,7 +12,7 @@ import (
 	"opnsense-cli/opnsense/api/interfaces"
 )
 
-// The item menus below /interface (vlan, lagg, bridge, gif, gre, loopback, vxlan, vip, neighbor) are built from an
+// The item menus below /interface (vlan, lagg, bridge, gif, gre, loopback, tap, vxlan, vip, neighbor) are built from an
 // interfaceSpec: Interfaces > Devices, Virtual IPs and Neighbors of OPNsense (api/interfaces/*_settings) all have
 // the same search/get/add/set/del/reconfigure endpoints. Changes are only saved, every menu has an apply command
 

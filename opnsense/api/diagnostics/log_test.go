@@ -393,3 +393,36 @@ func TestLogFollowReturnsHandleError(t *testing.T) {
 		t.Errorf("expected the handle error, got %v", err)
 	}
 }
+
+func TestLogFollowRetriesBusyFirstConnection(t *testing.T) {
+	var received, requests = logTestFollow(t, 2, 3,
+		streamTestBusy,
+		streamTestBusy,
+		func(w http.ResponseWriter, r *http.Request) {
+			logTestWriteEvents(w, logTestEvent("A", true), logTestEvent("B", true), logTestEvent("C", false))
+			logTestBlock(r)
+		},
+	)
+	if strings.Join(received, ",") != "A,B,C" || len(requests) != 3 {
+		t.Errorf("received %v after %d requests, want A,B,C after 3", received, len(requests))
+	}
+	for _, request := range requests {
+		if request.Query.Get("offset") != "2" {
+			t.Errorf("want the tail of 2 lines asked for on every connection, got offset %q", request.Query.Get("offset"))
+		}
+	}
+}
+
+func TestLogFollowBusyFirstConnectionShowsShortTailRightAway(t *testing.T) {
+	// the log has fewer lines than the requested tail: they are passed on without waiting for a live line
+	var received, requests = logTestFollow(t, 5, 1,
+		streamTestBusy,
+		func(w http.ResponseWriter, r *http.Request) {
+			logTestWriteEvents(w, logTestEvent("only", true))
+			logTestBlock(r)
+		},
+	)
+	if strings.Join(received, ",") != "only" || len(requests) != 2 || requests[1].Query.Get("offset") != "5" {
+		t.Errorf("received %v after %d requests, want only after 2", received, len(requests))
+	}
+}

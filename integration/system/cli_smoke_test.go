@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -191,6 +192,70 @@ func TestCliLogging(t *testing.T) {
 	mustOpn(t, "/system/logging/service", "restart")
 	if status, err := sys.LoggingServiceStatus(); err != nil || status != "running" {
 		t.Errorf("syslog after restart: %q, %v", status, err)
+	}
+}
+
+func TestCliLoggingSuppress(t *testing.T) {
+	var sys = systemApi(t)
+	requireSuppress(t, sys)
+	var description = testDescription("cli-dest-suppress")
+
+	var created = mustOpn(t, "/system/logging/destination", "add", "disabled", "hostname="+safeSyslogHost,
+		"suppress", "description="+description)
+	var uuid = uuidFrom(t, created)
+	cleanupDestination(t, sys, uuid)
+	if destination, err := sys.LoggingDestinationGet(uuid); err != nil || destination.Enabled != "0" || destination.Suppress != "1" {
+		t.Fatalf("after add: %+v, %v", destination, err)
+	}
+	var shown = mustOpn(t, "/system/logging/destination", "show", description)
+	requireContains(t, shown, shown.stdout, "suppress:", "yes")
+	var detail = mustOpn(t, "/system/logging/destination", "print", "detail", "search="+description)
+	requireContains(t, detail, detail.stdout, "suppress:", "yes")
+
+	requireNoStdout(t, mustOpn(t, "/system/logging/destination", "set", description, "suppress=no"))
+	if destination, _ := sys.LoggingDestinationGet(uuid); destination.Suppress != "0" || destination.Enabled != "0" {
+		t.Errorf("after set suppress=no: %+v", destination)
+	}
+	requireNoStdout(t, mustOpn(t, "/system/logging/destination", "set", description, "suppress"))
+	// a complete replacement resets suppress to its default
+	mustOpn(t, "/system/logging/destination", "add", "disabled", "hostname="+safeSyslogHost, "description="+description, "replace")
+	if destination, _ := sys.LoggingDestinationGet(uuid); destination.Suppress != "0" || destination.Enabled != "0" {
+		t.Errorf("after add replace: %+v", destination)
+	}
+	requireNoStdout(t, mustOpn(t, "/system/logging/destination", "remove", description))
+}
+
+// TestCliStatus reads the system notices. Nothing is dismissed: only a persistent notice (refused by the CLI
+// before any request) and an unknown subject (refused by OPNsense) are tried
+func TestCliStatus(t *testing.T) {
+	var sys = systemApi(t)
+	var notices, err = sys.StatusNotices()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var printed = mustOpn(t, "/system/status", "print")
+	requireContains(t, printed, printed.stdout, "SUBJECT", "SEVERITY", "MESSAGE")
+	var lines = mustOpn(t, "/system/status", "print", "json")
+	if got := strings.Count(lines.stdout, "\n"); got != len(notices) {
+		t.Errorf("print json: %d lines, %d notices:\n%s", got, len(notices), lines)
+	}
+	mustOpn(t, "/system/status", "print", "detail")
+	if len(notices) == 0 {
+		requireContains(t, printed, printed.stderr, "no pending notices")
+	}
+	for i, notice := range notices {
+		requireContains(t, printed, printed.stdout, notice.Subject, notice.Status)
+		var shown = mustOpn(t, "/system/status", "show", notice.Subject)
+		requireContains(t, shown, shown.stdout, "title:", notice.Title, "dismissable:")
+		if notice.Persistent {
+			var refused = mustFailOpn(t, "/system/status", "dismiss", strconv.Itoa(i), "confirm=yes")
+			requireContains(t, refused, refused.stderr, "persistent")
+		}
+	}
+	mustFailOpn(t, "/system/status", "show", "a8-no-such-notice")
+	if err := sys.StatusDismiss("a8-no-such-notice"); err == nil {
+		t.Errorf("dismissing an unknown notice: want an error")
 	}
 }
 

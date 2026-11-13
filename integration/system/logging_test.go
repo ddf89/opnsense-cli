@@ -70,6 +70,32 @@ func snapshotLoggingGeneral(t *testing.T, sys *system.SystemApi) system.LoggingG
 	return before
 }
 
+// suppressDefault returns the suppress value of a destination created without it: "0" on OPNsense 26.7.9+, ""
+// before (no such field)
+func suppressDefault(t *testing.T, destination system.LoggingDestination) string {
+	t.Helper()
+	if destination.Suppress != "" && destination.Suppress != "0" {
+		t.Errorf("suppress of a destination created without it is %q, want 0 (26.7.9+) or empty", destination.Suppress)
+	}
+	return destination.Suppress
+}
+
+// requireSuppress skips the test on OPNsense versions before 26.7.9, whose destinations have no suppress field
+func requireSuppress(t *testing.T, sys *system.SystemApi) {
+	t.Helper()
+	var uuid, _ = createDestination(t, sys, "dest-suppress-probe", system.LoggingDestination{})
+	var destination, err = sys.LoggingDestinationGet(uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sys.LoggingDestinationRemove(uuid); err != nil {
+		t.Fatal(err)
+	}
+	if destination.Suppress == "" {
+		t.Skip("this OPNsense has no suppress field for logging destinations (needs 26.7.9+)")
+	}
+}
+
 func TestLoggingGeneral(t *testing.T) {
 	var sys = systemApi(t)
 	var before = snapshotLoggingGeneral(t, sys)
@@ -133,6 +159,7 @@ func TestLoggingDestinationLifecycle(t *testing.T) {
 		want.Uuid = uuid
 		want.Rfc5424 = "0"
 		want.Certificate = ""
+		want.Suppress = suppressDefault(t, destination)
 		if destination != want {
 			t.Errorf("get:\n got  %+v\n want %+v", destination, want)
 		}
@@ -166,6 +193,7 @@ func TestLoggingDestinationLifecycle(t *testing.T) {
 		}
 		var want = created
 		want.Uuid, want.Rfc5424, want.Port, want.Level = uuid, "0", "1515", "err"
+		want.Suppress = suppressDefault(t, destination)
 		if destination != want {
 			t.Errorf("after update:\n got  %+v\n want %+v", destination, want)
 		}
@@ -205,6 +233,26 @@ func TestLoggingDestinationLifecycle(t *testing.T) {
 			t.Errorf("second remove: want *NotFoundError, got %T: %v", err, err)
 		}
 	})
+}
+
+func TestLoggingDestinationSuppress(t *testing.T) {
+	var sys = systemApi(t)
+	requireSuppress(t, sys)
+	var uuid, _ = createDestination(t, sys, "dest-suppress", system.LoggingDestination{Suppress: "1"})
+
+	if destination, err := sys.LoggingDestinationGet(uuid); err != nil || destination.Suppress != "1" {
+		t.Fatalf("after create with suppress: %+v, %v", destination, err)
+	}
+	var destinations, err = sys.LoggingDestinationList(testDescription("dest-suppress"))
+	if err != nil || len(destinations) != 1 || destinations[0].Suppress != "1" {
+		t.Errorf("search: want one destination with suppress 1, got %+v, %v", destinations, err)
+	}
+	if err := sys.LoggingDestinationUpdate(uuid, system.LoggingDestinationFields{Suppress: strPtr("0")}); err != nil {
+		t.Fatal(err)
+	}
+	if destination, err := sys.LoggingDestinationGet(uuid); err != nil || destination.Suppress != "0" || destination.Enabled != "0" {
+		t.Errorf("after update: %+v, %v", destination, err)
+	}
 }
 
 func TestLoggingDestinationErrors(t *testing.T) {

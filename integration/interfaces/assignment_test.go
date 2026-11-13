@@ -3,15 +3,19 @@
 package integrationinterfaces
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	api "opnsense-cli/opnsense/api"
 	"opnsense-cli/opnsense/api/interfaces"
@@ -103,8 +107,16 @@ func assignmentBaseline() {
 // assignmentPdLenUnset returns the assigned interfaces that get a spurious staged "update" from ANY assignment
 // change on OPNsense 26.7.8: its model requires dhcp6-ia-pd-len with the default 0 (upstream 5b9fc04efb,
 // 5dd91f6085) and compares the model with config.xml when saving, where interfaces configured before lack the
-// field. An apply of such an interface stores it. Nothing is returned when the model has no default for it
+// field. An apply of such an interface stores it. Nothing is returned when the model has no default for it, or on
+// OPNsense 26.7.9 and later, which compare a missing field as 0 and drop it for interfaces without DHCPv6
 func assignmentPdLenUnset(core *api.OPNsense, list []interfaces.Assignment) ([]string, error) {
+	var fixed, versionErr = assignmentPdLenFixed(core)
+	if versionErr != nil {
+		return nil, versionErr
+	}
+	if fixed {
+		return nil, nil
+	}
 	var record struct {
 		Interface map[string]json.RawMessage `json:"interface"`
 	}
@@ -145,6 +157,58 @@ func assignmentPdLenUnset(core *api.OPNsense, list []interfaces.Assignment) ([]s
 		}
 	}
 	return unset, nil
+}
+
+// assignmentPdLenFixedRelease is the first OPNsense release without the spurious dhcp6-ia-pd-len update
+var assignmentPdLenFixedRelease = []int{26, 7, 9}
+
+var assignmentVersionPattern = regexp.MustCompile(`^OPNsense ([0-9]+)\.([0-9]+)(?:\.([0-9]+))?`)
+
+// assignmentPdLenFixed tells whether the OPNsense release (as system_information reports it, e.g. "OPNsense
+// 26.7.9_1-amd64") has the fix of the spurious dhcp6-ia-pd-len update
+func assignmentPdLenFixed(core *api.OPNsense) (bool, error) {
+	var check, err = core.Check(context.Background(), 30*time.Second)
+	if err != nil {
+		return false, fmt.Errorf("reading the OPNsense version: %w", err)
+	}
+	var release, releaseErr = assignmentRelease(check.Versions)
+	if releaseErr != nil {
+		return false, releaseErr
+	}
+	return slices.Compare(release, assignmentPdLenFixedRelease) >= 0, nil
+}
+
+// assignmentRelease returns the release numbers (26.7 as 26, 7, 0) of the OPNsense entry of system_information's
+// versions
+func assignmentRelease(versions []string) ([]int, error) {
+	for _, version := range versions {
+		var match = assignmentVersionPattern.FindStringSubmatch(version)
+		if match == nil {
+			continue
+		}
+		var release = make([]int, 3)
+		for i, part := range match[1:] {
+			if part != "" {
+				release[i], _ = strconv.Atoi(part)
+			}
+		}
+		return release, nil
+	}
+	return nil, fmt.Errorf("no OPNsense version in %q", versions)
+}
+
+// TestAssignmentRelease checks the version parsing of the dhcp6-ia-pd-len gate (no instance needed)
+func TestAssignmentRelease(t *testing.T) {
+	for version, fixed := range map[string]bool{"OPNsense 26.7-amd64": false, "OPNsense 26.7.8_2-amd64": false,
+		"OPNsense 26.7.9-amd64": true, "OPNsense 26.7.9_1-amd64": true, "OPNsense 26.7.10-amd64": true, "OPNsense 27.1.r1-amd64": true} {
+		var release, err = assignmentRelease([]string{version, "FreeBSD 15.1-RELEASE-p6"})
+		if err != nil || (slices.Compare(release, assignmentPdLenFixedRelease) >= 0) != fixed {
+			t.Errorf("%s: %v / %v", version, release, err)
+		}
+	}
+	if _, err := assignmentRelease([]string{"FreeBSD 15.1"}); err == nil {
+		t.Error("want an error without an OPNsense version")
+	}
 }
 
 // assignmentOnlyOwnStaged tells whether the staged assignment changes are only those of the given identifiers of

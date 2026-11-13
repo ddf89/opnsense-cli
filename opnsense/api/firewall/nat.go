@@ -24,8 +24,9 @@ import (
 //     uuids answer a bare "failed"; Update checks the existence first
 //   - get_rule/<unknown uuid> answers [], del_rule "not found", toggle_rule "failed", move_rule_before and
 //     toggle_rule_log HTTP 500 {"errorMessage":"..."}
-//   - search_rule always includes the rules OPNsense generates (is_automatic, uuids like automatic_wan or
-//     lockout_0), even when a searchPhrase excludes them; they can not be changed
+//   - search_rule always includes the rules OPNsense generates (is_automatic, uuids like automatic_wan), even when
+//     a searchPhrase excludes them; they can not be changed. The d_nat anti-lockout rule is lockout_0 up to 26.7.8
+//     and one rule per protected port since 26.7.9 (automatic_pf_1, automatic_pf_2, ...); only is_automatic counts
 //   - source_nat/search_rule only returns the manual rules in the hybrid and manual (advanced) outbound NAT modes;
 //     in the automatic and disabled modes they are only listed by download_rules (CSV), List merges them in
 //   - d_nat is shaped like the legacy port forwards: "descr" instead of "description", a "disabled" flag instead

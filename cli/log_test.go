@@ -603,6 +603,29 @@ func TestLogStreamErrors(t *testing.T) {
 	}
 }
 
+// OPNsense 26.7.9+ having no free stream slot (other live views hold them) is retried, even on the first connection
+func TestLogStreamBusy(t *testing.T) {
+	t.Parallel()
+	for _, tc := range logStreamCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var f = tc.fake(t, ifaceStreamBusy, sseConn{Keepalive: true, Events: tc.events})
+			var p = f.start(tc.args...)
+			p.waitFor(tc.want)
+			var r = p.interrupt()
+			wantExit(t, r, 0)
+			wantContains(t, "stderr", r.stderr, "no free stream slot", `"Unable to open stream, max slots (15) used"`, "reconnecting in 1s")
+			wantNotContains(t, "stderr", r.stderr, "unsupported endpoint")
+			if n := strings.Count(r.stdout, tc.want); n != 1 {
+				t.Errorf("%q printed %d times:\n%s", tc.want, n, r.stdout)
+			}
+			if n := f.streamConnections(tc.path); n != 2 {
+				t.Errorf("want 2 stream connections, got %d", n)
+			}
+		})
+	}
+}
+
 // garbage in an event (e.g. a PHP error page) ends the command with a message, it is never printed as data
 func TestLogStreamInvalidEvent(t *testing.T) {
 	t.Parallel()
