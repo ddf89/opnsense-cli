@@ -263,9 +263,19 @@ func TestDdclientService(t *testing.T) {
 	for _, action := range []string{"start", "stop", "restart", "reconfigure"} {
 		wantExit(t, f.run("/ddclient/service", action), 0)
 	}
-	if got := len(f.mutations()); got != 4 {
+	// start of the running service sends nothing (OPNsense would answer "Error (1)")
+	if got := len(f.mutations()); got != 3 {
 		t.Errorf("mutations %v", f.mutations())
 	}
+	r = f.run("/ddclient/service", "start")
+	wantExit(t, r, 0)
+	wantContains(t, "stderr", r.stderr, "running already")
+
+	var stopped = newFakeOPN(t)
+	stopped.on("GET", "/api/dyndns/service/status", 200, `{"status":"stopped","widget":{}}`)
+	stopped.on("POST", "/api/dyndns/service/start", 200, `{"response":"OK"}`)
+	wantExit(t, stopped.run("/ddclient/service", "start"), 0)
+	wantOneMutation(t, stopped, "POST", "/api/dyndns/service/start")
 }
 
 func TestDdclientNotInstalled(t *testing.T) {
